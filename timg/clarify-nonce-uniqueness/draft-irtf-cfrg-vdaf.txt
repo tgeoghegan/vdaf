@@ -5,12 +5,12 @@
 CFRG                                                        R. L. Barnes
 Internet-Draft                                                     Cisco
 Intended status: Informational                                   D. Cook
-Expires: 2 March 2024                                               ISRG
+Expires: 2 November 2024                                            ISRG
                                                                C. Patton
                                                               Cloudflare
                                                            P. Schoppmann
                                                                   Google
-                                                          30 August 2023
+                                                              1 May 2024
 
 
               Verifiable Distributed Aggregation Functions
@@ -53,11 +53,11 @@ Status of This Memo
    time.  It is inappropriate to use Internet-Drafts as reference
    material or to cite them other than as "work in progress."
 
-   This Internet-Draft will expire on 2 March 2024.
+   This Internet-Draft will expire on 2 November 2024.
 
 Copyright Notice
 
-   Copyright (c) 2023 IETF Trust and the persons identified as the
+   Copyright (c) 2024 IETF Trust and the persons identified as the
    document authors.  All rights reserved.
 
    This document is subject to BCP 78 and the IETF Trust's Legal
@@ -97,13 +97,14 @@ Table of Contents
        6.1.1.  Auxiliary Functions
        6.1.2.  FFT-Friendly Fields
        6.1.3.  Parameters
-     6.2.  Pseudorandom Generators
-       6.2.1.  PrgSha3
-       6.2.2.  PrgFixedKeyAes128
+     6.2.  Extendable Output Functions
+       6.2.1.  XofTurboShake128
+       6.2.2.  XofFixedKeyAes128
        6.2.3.  The Domain Separation Tag and Binder String
    7.  Prio3
      7.1.  Fully Linear Proof (FLP) Systems
        7.1.1.  Encoding the Input
+       7.1.2.  Multiple Proofs
      7.2.  Construction
        7.2.1.  Sharding
        7.2.2.  Preparation
@@ -119,8 +120,8 @@ Table of Contents
      7.4.  Instantiations
        7.4.1.  Prio3Count
        7.4.2.  Prio3Sum
-       7.4.3.  Prio3Histogram
-       7.4.4.  Prio3SumVec
+       7.4.3.  Prio3SumVec
+       7.4.4.  Prio3Histogram
    8.  Poplar1
      8.1.  Incremental Distributed Point Functions (IDPFs)
      8.2.  Construction
@@ -140,7 +141,8 @@ Table of Contents
      9.2.  Requirements for the Nonce
      9.3.  Requirements for the Aggregation Parameters
        9.3.1.  Additional Privacy Considerations
-     9.4.  Pseudorandom Generators and Random Oracles
+     9.4.  Requirements for XOFs
+     9.5.  Choosing the Field Size
    10. IANA Considerations
    11. References
      11.1.  Normative References
@@ -149,13 +151,16 @@ Table of Contents
    Test Vectors
      Prio3Count
      Prio3Sum
+     Prio3SumVec
      Prio3Histogram
      Poplar1
-       Sharding
-       Preparation, Aggregation, and Unsharding
    Authors' Addresses
 
 1.  Introduction
+
+   [TO BE REMOVED BY RFC EDITOR: The source for this draft and and the
+   reference implementation can be found at https://github.com/cfrg/
+   draft-irtf-cfrg-vdaf.]
 
    The ubiquity of the Internet makes it an ideal platform for
    measurement of large-scale phenomena, whether public health trends or
@@ -336,6 +341,59 @@ Table of Contents
 
    (*) Indicates a change that breaks wire compatibility with the
    previous draft.
+
+   08:
+
+   *  Poplar1: Bind the report nonce to the authenticator vector
+      programmed into the IDPF. (*)
+
+   *  IdpfPoplar: Modify extend() by stealing each control bit from its
+      corresponding seed.  This improves performance by reducing the
+      number of AES calls per level from 3 to 2.  The cost is a slight
+      reduction in the concrete privacy bound. (*)
+
+   *  Prio3: Add support for generating and verifying mutliple proofs
+      per measurement.  This enables a trade-off between communication
+      cost and runtime: if more proofs are used, then a smaller field
+      can be used without impacting robustness. (*)
+
+   *  Replace SHAKE128 with TurboSHAKE128. (*)
+
+   07:
+
+   *  Rename PRG to XOF ("eXtendable Output Function").  Accordingly,
+      rename PrgSha3 to XofShake128 and PrgFixedKeyAes128 to
+      XofFixedKeyAes128.  "PRG" is a misnomer since we don't actually
+      treat this object as a pseudorandom generator in existing security
+      analysis.
+
+   *  Replace cSHAKE128 with SHAKE128, re-implementing domain separation
+      for the customization string using a simpler scheme.  This change
+      addresses the reality that implementations of cSHAKE128 are less
+      common. (*)
+
+   *  Define a new VDAF, called Prio3SumVec, that generalizes Prio3Sum
+      to a vector of summands.
+
+   *  Prio3Histogram: Update the codepoint and use the parallel sum
+      optimization introduced by Prio3SumVec to reduce the proof size.
+      (*)
+
+   *  Daf, Vdaf: Rename interface methods to match verbiage in the
+      draft.
+
+   *  Daf: Align with Vdaf by adding a nonce to shard() and prep().
+
+   *  Vdaf: Have prep_init() compute the first prep share.  This change
+      is intended to simplify the interface by making the input to
+      prep_next() not optional.
+
+   *  Prio3: Split sharding into two auxiliary functions, one for
+      sharding with joint randomness and another without.  This change
+      is intended to improve readability.
+
+   *  Fix bugs in the ping-pong interface discovered after implementing
+      it.
 
    06:
 
@@ -523,7 +581,7 @@ Table of Contents
    b'some constant string').
 
    A global constant VERSION of type Unsigned is defined, which
-   algorithms are free to use as desired.  Its value SHALL be 6.
+   algorithms are free to use as desired.  Its value SHALL be 8.
 
    This document describes algorithms for multi-party computations in
    which the parties typically communicate over a network.  Wherever a
@@ -1045,7 +1103,7 @@ Table of Contents
        return format_dst(0, Vdaf.ID, usage)
 
    It is used to construct a domain separation tag for an instance of
-   Prg used by the VDAF.  (See Section 6.2.)
+   Xof used by the VDAF.  (See Section 6.2.)
 
 5.1.  Sharding
 
@@ -1703,9 +1761,9 @@ Table of Contents
    *  Field(integer: Unsigned) returns integer represented as a field
       element.  The value of integer MUST be less than Field.MODULUS.
 
-   Finally, each concrete Field has two derived class methods, one for
-   encoding a vector of field elements as a byte string and another for
-   decoding a vector of field elements.
+   Each concrete Field has two derived class methods, one for encoding a
+   vector of field elements as a byte string and another for decoding a
+   vector of field elements.
 
    def encode_vec(Field, data: Vec[Field]) -> Bytes:
        encoded = Bytes()
@@ -1729,6 +1787,44 @@ Table of Contents
 
              Figure 9: Derived class methods for finite fields.
 
+   Finally, Field implements the following methods for representing a
+   value as a sequence of field elements, each of which represents a bit
+   of the input.
+
+   def encode_into_bit_vector(Field,
+                              val: Unsigned,
+                              bits: Unsigned) -> Vec[Field]:
+       """
+       Encode the bit representation of `val` with at most `bits` number
+       of bits, as a vector of field elements.
+       """
+       if val >= 2 ** bits:
+           # Sanity check we are able to represent `val` with `bits`
+           # number of bits.
+           raise ValueError("Number of bits is not enough to represent "
+                            "the input integer.")
+       encoded = []
+       for l in range(bits):
+           encoded.append(Field((val >> l) & 1))
+       return encoded
+
+   def decode_from_bit_vector(Field, vec: Vec[Field]) -> Field:
+       """
+       Decode the field element from the bit representation, expressed
+       as a vector of field elements `vec`.
+       """
+       bits = len(vec)
+       if Field.MODULUS >> bits == 0:
+           raise ValueError("Number of bits is too large to be "
+                            "represented by field modulus.")
+       decoded = Field(0)
+       for (l, bit) in enumerate(vec):
+           decoded += Field(1 << l) * bit
+       return decoded
+
+    Figure 10: Derived class methods to encode integers into bit vector
+                              representation.
+
 6.1.1.  Auxiliary Functions
 
    The following auxiliary functions on vectors of field elements are
@@ -1745,7 +1841,7 @@ Table of Contents
        """Add the right operand to the left and return the result."""
        return list(map(lambda x: x[0] + x[1], zip(left, right)))
 
-               Figure 10: Common functions for finite fields.
+               Figure 11: Common functions for finite fields.
 
 6.1.2.  FFT-Friendly Fields
 
@@ -1789,48 +1885,42 @@ Table of Contents
 
      Table 3: Parameters for the finite fields used in this document.
 
-6.2.  Pseudorandom Generators
+6.2.  Extendable Output Functions
 
-   A pseudorandom generator (PRG) is used to expand a short,
-   (pseudo)random seed into a long string of pseudorandom bits.  A PRG
-   suitable for this document implements the interface specified in this
-   section.
+   VDAFs in this specification use extendable output functions (XOFs) to
+   extract short, fixed-length strings we call "seeds" from long input
+   strings and expand seeds into long output strings.  We specify a
+   single interface that is suitable for both purposes.
 
-   PRGs are defined by a class Prg with the following associated
-   parameter:
+   XOFs are defined by a class Xof with the following associated
+   parameter and methods:
 
    *  SEED_SIZE: Unsigned is the size (in bytes) of a seed.
 
-   A concrete Prg implements the following methods:
-
-   *  Prg(seed: Bytes[Prg.SEED_SIZE], dst: Bytes, binder: Bytes)
-      constructs an instance of Prg from the given seed, domain
+   *  Xof(seed: Bytes[Xof.SEED_SIZE], dst: Bytes, binder: Bytes)
+      constructs an instance of Xof from the given seed, domain
       separation tag, and binder string.  (See below for definitions of
       these.)  The seed MUST be of length SEED_SIZE and MUST be
       generated securely (i.e., it is either the output of gen_rand or a
-      previous invocation of the PRG).
+      previous invocation of the XOF).
 
-   *  prg.next(length: Unsigned) returns the next length bytes of output
-      of PRG.  If the seed was securely generated, the output can be
-      treated as pseudorandom.
+   *  xof.next(length: Unsigned) returns the next length bytes of output
+      of xof.
 
-   Each Prg has two derived methods.  The first is used to derive a
+   Each Xof has two derived methods.  The first is used to derive a
    fresh seed from an existing one.  The second is used to compute a
-   sequence of pseudorandom field elements.  For each method, the seed
-   MUST be of length SEED_SIZE and MUST be generated securely (i.e., it
-   is either the output of gen_rand or a previous invocation of the
-   PRG).
+   sequence of field elements.
 
-   def derive_seed(Prg,
-                   seed: Bytes[Prg.SEED_SIZE],
+   def derive_seed(Xof,
+                   seed: Bytes[Xof.SEED_SIZE],
                    dst: Bytes,
                    binder: Bytes):
        """Derive a new seed."""
-       prg = Prg(seed, dst, binder)
-       return prg.next(Prg.SEED_SIZE)
+       xof = Xof(seed, dst, binder)
+       return xof.next(Xof.SEED_SIZE)
 
    def next_vec(self, Field, length: Unsigned):
-       """Output the next `length` pseudorandom elements of `Field`."""
+       """Output the next `length` elements of `Field`."""
        m = next_power_of_2(Field.MODULUS) - 1
        vec = []
        while len(vec) < length:
@@ -1840,115 +1930,117 @@ Table of Contents
                vec.append(Field(x))
        return vec
 
-   def expand_into_vec(Prg,
+   def expand_into_vec(Xof,
                        Field,
-                       seed: Bytes[Prg.SEED_SIZE],
+                       seed: Bytes[Xof.SEED_SIZE],
                        dst: Bytes,
                        binder: Bytes,
                        length: Unsigned):
        """
        Expand the input `seed` into vector of `length` field elements.
        """
-       prg = Prg(seed, dst, binder)
-       return prg.next_vec(Field, length)
+       xof = Xof(seed, dst, binder)
+       return xof.next_vec(Field, length)
 
-                    Figure 11: Derived methods for PRGs.
+                    Figure 12: Derived methods for XOFs.
 
-6.2.1.  PrgSha3
+6.2.1.  XofTurboShake128
 
-   This section describes PrgSha3, a PRG based on the Keccak permutation
-   of SHA-3 [FIPS202].  Keccak is used in the cSHAKE128 mode of
-   operation [SP800-185].  This Prg is RECOMMENDED for all use cases
-   within VDAFs.
+   This section describes XofTurboShake128, an XOF based on the
+   TurboSHAKE128 [TurboSHAKE].  This XOF is RECOMMENDED for all use
+   cases within VDAFs.  The length of the domain separation string dst
+   passed to XofTurboShake128 MUST NOT exceed 255 bytes.
 
-   class PrgSha3(Prg):
-       """PRG based on SHA-3 (cSHAKE128)."""
+class XofTurboShake128(Xof):
+    """XOF wrapper for TurboSHAKE128."""
 
-       # Associated parameters
-       SEED_SIZE = 16
+    # Associated parameters
+    SEED_SIZE = 16
 
-       def __init__(self, seed, dst, binder):
-           self.l = 0
-           self.x = seed + binder
-           self.s = dst
+    def __init__(self, seed, dst, binder):
+        self.l = 0
+        self.m = to_le_bytes(len(dst), 1) + dst + seed + binder
 
-       def next(self, length: Unsigned) -> Bytes:
-           self.l += length
+    def next(self, length: Unsigned) -> Bytes:
+        self.l += length
 
-           # Function `cSHAKE128(x, l, n, s)` is as defined in
-           # [SP800-185, Section 3.3].
-           #
-           # Implementation note: Rather than re-generate the output
-           # stream each time `next()` is invoked, most implementations
-           # of SHA-3 will expose an "absorb-then-squeeze" API that
-           # allows stateful handling of the stream.
-           stream = cSHAKE128(self.x, self.l, b'', self.s)
-           return stream[-length:]
+        # Function `TurboSHAKE128(M, D, L)` is as defined in
+        # Section 2.2 of [TurboSHAKE].
+        #
+        # Implementation note: Rather than re-generate the output
+        # stream each time `next()` is invoked, most implementations
+        # of TurboSHAKE128 will expose an "absorb-then-squeeze" API that
+        # allows stateful handling of the stream.
+        stream = TurboSHAKE128(self.m, 1, self.l)
+        return stream[-length:]
 
-                   Figure 12: Definition of PRG PrgSha3.
+            Figure 13: Definition of XOF XofTurboShake128.
 
-6.2.2.  PrgFixedKeyAes128
+6.2.2.  XofFixedKeyAes128
 
-   While PrgSha3 as described above can be securely used in all cases
-   where a Prg is needed in the VDAFs described in this document, there
-   are some cases where a more efficient instantiation based on fixed-
-   key AES is possible.  For now, this is limited to the Prg used inside
-   the Idpf Section 8.1 implementation in Poplar1 Section 8.3.  It is
-   NOT RECOMMENDED to use this Prg anywhere else.  See Security
-   Considerations Section 9 for a more detailed discussion.
+   While XofTurboShake128 as described above can be securely used in all
+   cases where a XOF is needed in the VDAFs described in this document,
+   there are some cases where a more efficient instantiation based on
+   fixed-key AES is possible.  For now, this is limited to the XOF used
+   inside the Idpf Section 8.1 implementation in Poplar1 Section 8.3.
+   It is NOT RECOMMENDED to use this XOF anywhere else.  The length of
+   the domain separation string dst passed to XofFixedKeyAes128 MUST NOT
+   exceed 255 bytes.  See Security Considerations Section 9 for a more
+   detailed discussion.
 
- class PrgFixedKeyAes128(Prg):
-     """
-     PRG based on a circular collision-resistant hash function from
-     fixed-key AES.
-     """
+class XofFixedKeyAes128(Xof):
+    """
+    XOF based on a circular collision-resistant hash function from
+    fixed-key AES.
+    """
 
-     # Associated parameters
-     SEED_SIZE = 16
+    # Associated parameters
+    SEED_SIZE = 16
 
-     def __init__(self, seed, dst, binder):
-         self.length_consumed = 0
+    def __init__(self, seed, dst, binder):
+        self.length_consumed = 0
 
-         # Use SHA-3 to derive a key from the binder string and domain
-         # separation tag. Note that the AES key does not need to be
-         # kept secret from any party. However, when used with
-         # IdpfPoplar, we require the binder to be a random nonce.
-         #
-         # Implementation note: This step can be cached across PRG
-         # evaluations with many different seeds.
-         self.fixed_key = cSHAKE128(binder, 16, b'', dst)
-         self.seed = seed
+        # Use TurboSHAKE128 to derive a key from the binder string and
+        # domain separation tag. Note that the AES key does not need
+        # to be kept secret from any party. However, when used with
+        # IdpfPoplar, we require the binder to be a random nonce.
+        #
+        # Implementation note: This step can be cached across XOF
+        # evaluations with many different seeds.
+        dst_length = to_le_bytes(len(dst), 1)
+        self.fixed_key = TurboSHAKE128(dst_length + dst + binder, 2, 16)
+        self.seed = seed
 
-     def next(self, length: Unsigned) -> Bytes:
-         offset = self.length_consumed % 16
-         new_length = self.length_consumed + length
-         block_range = range(
-             int(self.length_consumed / 16),
-             int(new_length / 16) + 1)
-         self.length_consumed = new_length
+    def next(self, length: Unsigned) -> Bytes:
+        offset = self.length_consumed % 16
+        new_length = self.length_consumed + length
+        block_range = range(
+            int(self.length_consumed / 16),
+            int(new_length / 16) + 1)
+        self.length_consumed = new_length
 
-         hashed_blocks = [
-             self.hash_block(xor(self.seed, to_le_bytes(i, 16))) \
-                          for i in block_range
-         ]
-         return concat(hashed_blocks)[offset:offset+length]
+        hashed_blocks = [
+            self.hash_block(xor(self.seed, to_le_bytes(i, 16))) \
+                         for i in block_range
+        ]
+        return concat(hashed_blocks)[offset:offset+length]
 
-     def hash_block(self, block):
-         """
-         The multi-instance tweakable circular correlation-robust hash
-         function of [GKWWY20] (Section 4.2). The tweak here is the key
-         that stays constant for all PRG evaluations of the same Client,
-         but differs between Clients.
+    def hash_block(self, block):
+        """
+        The multi-instance tweakable circular correlation-robust hash
+        function of [GKWWY20] (Section 4.2). The tweak here is the key
+        that stays constant for all XOF evaluations of the same Client,
+        but differs between Clients.
 
-         Function `AES128(key, block)` is the AES-128 blockcipher.
-         """
-         lo, hi = block[:8], block[8:]
-         sigma_block = concat([hi, xor(hi, lo)])
-         return xor(AES128(self.fixed_key, sigma_block), sigma_block)
+        Function `AES128(key, block)` is the AES-128 blockcipher.
+        """
+        lo, hi = block[:8], block[8:]
+        sigma_block = concat([hi, xor(hi, lo)])
+        return xor(AES128(self.fixed_key, sigma_block), sigma_block)
 
 6.2.3.  The Domain Separation Tag and Binder String
 
-   PRGs are used to map a seed to a finite domain, e.g., a fresh seed or
+   XOFs are used to map a seed to a finite domain, e.g., a fresh seed or
    a vector of field elements.  To ensure domain separation, the
    derivation is needs to be bound to some distinguished domain
    separation tag.  The domain separation tag encodes the following
@@ -1969,7 +2061,7 @@ Table of Contents
    def format_dst(algo_class: Unsigned,
                   algo: Unsigned,
                   usage: Unsigned) -> Bytes:
-       """Format PRG domain separation tag for use within a (V)DAF."""
+       """Format XOF domain separation tag for use within a (V)DAF."""
        return concat([
            to_be_bytes(VERSION, 1),
            to_be_bytes(algo_class, 1),
@@ -2175,13 +2267,23 @@ Table of Contents
       # Verifier decides if the measurement is valid.
       return flp.decide(verifier)
 
-                     Figure 13: Execution of an FLP.
+                     Figure 14: Execution of an FLP.
 
    The proof system is constructed so that, if meas is valid, then
    run_flp(Flp, meas, 1) always returns True.  On the other hand, if
    meas is invalid, then as long as joint_rand and query_rand are
-   generated uniform randomly, the output is False with overwhelming
-   probability.
+   generated uniform randomly, the output is False with high
+   probability.  False positives are possible: there is a small
+   probability that a verifier accepts an invalid input as valid.  An
+   FLP is said to be "sound" if this probability is sufficiently small.
+   The soundness of the FLP depends on a variety of parameters, like the
+   length of the input and the size of the field.  See Section 7.3 for
+   details.
+
+   Note that soundness of an FLP system is not the same as robustness
+   for a VDAF In particular, soundness of the FLP is necessary, but
+   insufficient for robusntess of Prio3 (Section 7).  See Section 9.5
+   for details.
 
    We remark that [BBCGGI19] defines a much larger class of fully linear
    proof systems than we consider here.  In particular, what is called
@@ -2229,23 +2331,49 @@ Table of Contents
    correspond roughly to the notion of "Affine-aggregatable encodings
    (AFEs)" from [CGB17].
 
+7.1.2.  Multiple Proofs
+
+   It is sometimes desirable to generate and verify multiple independent
+   proofs for the same input.  First, this improves the soundness of the
+   proof system without having to change any of its parameters.  Second,
+   it allows a smaller field to be used (e.g., replace Field128 with
+   Field64, see Section 7.3) without sacrificing soundness.  Generally,
+   choosing a smaller field can significantly reduce communication cost.
+   (This is a trade-off, of course, since generating and verifying more
+   proofs requires more time.)  Given these benefits, this feature is
+   implemented by Prio3 (Section 7).
+
+   To generate these proofs for a specific measurement, the prover calls
+   Flp.prove multiple times, each time using an independently generated
+   prover and joint randomness string.  The verifier checks each proof
+   independently, each time with an independently generated query
+   randomness string.  It accepts the measurement only if all the
+   decision algorithm accepts on each proof.
+
+   See Section 9.5 below for discussions on choosing the right number of
+   proofs.
+
 7.2.  Construction
 
    This section specifies Prio3, an implementation of the Vdaf interface
    (Section 5).  It has two generic parameters: an Flp (Section 7.1) and
-   a Prg (Section 6.2).  The associated constants and types required by
-   the Vdaf interface are defined in Table 5.  The methods required for
-   sharding, preparation, aggregation, and unsharding are described in
-   the remaining subsections.  These methods refer to constants
-   enumerated in Table 6.
+   a Xof (Section 6.2).  It also has an associated constant, PROOFS,
+   with a value within the range of [1, 256), denoting the number of
+   FLPs generated by the Client (Section 7.1.2).  The value of PROOFS is
+   1 unless explicitly specified.
+
+   The associated constants and types required by the Vdaf interface are
+   defined in Table 5.  The methods required for sharding, preparation,
+   aggregation, and unsharding are described in the remaining
+   subsections.  These methods refer to constants enumerated in Table 6.
 
      +=================+============================================+
      | Parameter       | Value                                      |
      +=================+============================================+
-     | VERIFY_KEY_SIZE | Prg.SEED_SIZE                              |
+     | VERIFY_KEY_SIZE | Xof.SEED_SIZE                              |
      +-----------------+--------------------------------------------+
-     | RAND_SIZE       | Prg.SEED_SIZE * (1 + 2 * (SHARES - 1)) if  |
-     |                 | Flp.JOINT_RAND_LEN == 0 else Prg.SEED_SIZE |
+     | RAND_SIZE       | Xof.SEED_SIZE * (1 + 2 * (SHARES - 1)) if  |
+     |                 | Flp.JOINT_RAND_LEN == 0 else Xof.SEED_SIZE |
      |                 | * (1 + 2 * (SHARES - 1) + SHARES)          |
      +-----------------+--------------------------------------------+
      | NONCE_SIZE      | 16                                         |
@@ -2326,13 +2454,23 @@ Table of Contents
        parts, and the input shares, each consisting of the measurement
        share, proof share, and blind of one of the Aggregators
 
+   As described in Section 7.1.2, the soundness of the FLP can be
+   amplified by generating and verifying multiple FLPs.  (This in turn
+   improves the robustness of Prio3.)  To support this, in Prio3:
+
+   *  In step 3, derive as much joint randomness as required by PROOFS
+      proofs
+
+   *  Repeat step 4 PROOFS times, each time with a unique joint
+      randomness
+
    Depending on the FLP, joint randomness may not be required.  In
    particular, when Flp.JOINT_RAND_LEN == 0, the Client does not derive
    the joint randomness (Step 3).  The sharding algorithm is specified
    below.
 
    def shard(Prio3, measurement, nonce, rand):
-       l = Prio3.Prg.SEED_SIZE
+       l = Prio3.Xof.SEED_SIZE
        seeds = [rand[i:i+l] for i in range(0, Prio3.RAND_SIZE, l)]
 
        meas = Prio3.Flp.encode(measurement)
@@ -2341,7 +2479,7 @@ Table of Contents
        else:
            return Prio3.shard_without_joint_rand(meas, seeds)
 
-             Figure 14: Input-distribution algorithm for Prio3.
+             Figure 15: Input-distribution algorithm for Prio3.
 
    It starts by splitting the randomness into seeds.  It then encodes
    the measurement as prescribed by the FLP and calls one of two
@@ -2354,63 +2492,68 @@ Table of Contents
    randomness, i.e., when Flp.JOINT_RAND_LEN == 0:
 
    def shard_without_joint_rand(Prio3, meas, seeds):
-       k_helper_seeds, seeds = front((Prio3.SHARES-1) * 2, seeds)
-       k_helper_meas_shares = [
-           k_helper_seeds[i]
-           for i in range(0, (Prio3.SHARES-1) * 2, 2)
-       ]
-       k_helper_proof_shares = [
-           k_helper_seeds[i]
-           for i in range(1, (Prio3.SHARES-1) * 2, 2)
-       ]
-       (k_prove,), seeds = front(1, seeds)
+     k_helper_seeds, seeds = front((Prio3.SHARES-1) * 2, seeds)
+     k_helper_meas_shares = [
+         k_helper_seeds[i]
+         for i in range(0, (Prio3.SHARES-1) * 2, 2)
+     ]
+     k_helper_proofs_shares = [
+         k_helper_seeds[i]
+         for i in range(1, (Prio3.SHARES-1) * 2, 2)
+     ]
+     (k_prove,), seeds = front(1, seeds)
 
-       # Shard the encoded measurement into shares.
-       leader_meas_share = meas
-       for j in range(Prio3.SHARES-1):
-           leader_meas_share = vec_sub(
-               leader_meas_share,
-               Prio3.helper_meas_share(j+1, k_helper_meas_shares[j]),
-           )
+     # Shard the encoded measurement into shares.
+     leader_meas_share = meas
+     for j in range(Prio3.SHARES-1):
+         leader_meas_share = vec_sub(
+             leader_meas_share,
+             Prio3.helper_meas_share(j+1, k_helper_meas_shares[j]),
+         )
 
-       # Generate the proof and shard it into proof shares.
-       prove_rand = Prio3.prove_rand(k_prove)
-       leader_proof_share = Prio3.Flp.prove(meas, prove_rand, [])
-       for j in range(Prio3.SHARES-1):
-           leader_proof_share = vec_sub(
-               leader_proof_share,
-               Prio3.helper_proof_share(j+1, k_helper_proof_shares[j]),
-           )
+     # Generate and shard each proof into shares.
+     prove_rands = Prio3.prove_rands(k_prove)
+     leader_proofs_share = []
+     for _ in range(Prio3.PROOFS):
+         prove_rand, prove_rands = front(
+             Prio3.Flp.PROVE_RAND_LEN, prove_rands)
+         leader_proofs_share += Prio3.Flp.prove(meas, prove_rand, [])
+     for j in range(Prio3.SHARES-1):
+         leader_proofs_share = vec_sub(
+             leader_proofs_share,
+             Prio3.helper_proofs_share(j+1, k_helper_proofs_shares[j]),
+         )
 
-       # Each Aggregator's input share contains its measurement share
-       # and proof share.
-       input_shares = []
-       input_shares.append((
-           leader_meas_share,
-           leader_proof_share,
-           None,
-       ))
-       for j in range(Prio3.SHARES-1):
-           input_shares.append((
-               k_helper_meas_shares[j],
-               k_helper_proof_shares[j],
-               None,
-           ))
-       return (None, input_shares)
+     # Each Aggregator's input share contains its measurement share
+     # and share of proof(s).
+     input_shares = []
+     input_shares.append((
+         leader_meas_share,
+         leader_proofs_share,
+         None,
+     ))
+     for j in range(Prio3.SHARES-1):
+         input_shares.append((
+             k_helper_meas_shares[j],
+             k_helper_proofs_shares[j],
+             None,
+         ))
+     return (None, input_shares)
 
-    Figure 15: Sharding an encoded measurement without joint randomness.
+    Figure 16: Sharding an encoded measurement without joint randomness.
 
    The steps in this method are as follows:
 
    1.  Shard the encoded measurement into shares
 
-   2.  Generate the proof and shard the proof into shares
+   2.  Generate and shard each proof into shares
 
-   3.  Encode each measurement and proof share into an input share
+   3.  Encode each measurement and shares of each proof into an input
+       share
 
-   Notice that only one pair of measurement and proof shares (called the
-   "leader" shares above) are vectors of field elements.  The other
-   shares (called the "helper" shares) are represented instead by PRG
+   Notice that only one pair of measurement and proof(s) share (called
+   the "leader" shares above) are vectors of field elements.  The other
+   shares (called the "helper" shares) are represented instead by XOF
    seeds, which are expanded into vectors of field elements.
 
    The methods on Prio3 for deriving the prover randomness, measurement
@@ -2422,72 +2565,80 @@ Table of Contents
    The following method is used for FLPs that require joint randomness,
    i.e., for which Flp.JOINT_RAND_LEN > 0:
 
-  def shard_with_joint_rand(Prio3, meas, nonce, seeds):
-      k_helper_seeds, seeds = front((Prio3.SHARES-1) * 3, seeds)
-      k_helper_meas_shares = [
-          k_helper_seeds[i]
-          for i in range(0, (Prio3.SHARES-1) * 3, 3)
-      ]
-      k_helper_proof_shares = [
-          k_helper_seeds[i]
-          for i in range(1, (Prio3.SHARES-1) * 3, 3)
-      ]
-      k_helper_blinds = [
-          k_helper_seeds[i]
-          for i in range(2, (Prio3.SHARES-1) * 3, 3)
-      ]
-      (k_leader_blind,), seeds = front(1, seeds)
-      (k_prove,), seeds = front(1, seeds)
+   def shard_with_joint_rand(Prio3, meas, nonce, seeds):
+     k_helper_seeds, seeds = front((Prio3.SHARES-1) * 3, seeds)
+     k_helper_meas_shares = [
+         k_helper_seeds[i]
+         for i in range(0, (Prio3.SHARES-1) * 3, 3)
+     ]
+     k_helper_proofs_shares = [
+         k_helper_seeds[i]
+         for i in range(1, (Prio3.SHARES-1) * 3, 3)
+     ]
+     k_helper_blinds = [
+         k_helper_seeds[i]
+         for i in range(2, (Prio3.SHARES-1) * 3, 3)
+     ]
+     (k_leader_blind,), seeds = front(1, seeds)
+     (k_prove,), seeds = front(1, seeds)
 
-      # Shard the encoded measurement into shares and compute the
-      # joint randomness parts.
-      leader_meas_share = meas
-      k_joint_rand_parts = []
-      for j in range(Prio3.SHARES-1):
-          helper_meas_share = Prio3.helper_meas_share(
-              j+1, k_helper_meas_shares[j])
-          leader_meas_share = vec_sub(leader_meas_share,
-                                      helper_meas_share)
-          k_joint_rand_parts.append(Prio3.joint_rand_part(
-              j+1, k_helper_blinds[j], helper_meas_share, nonce))
-      k_joint_rand_parts.insert(0, Prio3.joint_rand_part(
-          0, k_leader_blind, leader_meas_share, nonce))
+     # Shard the encoded measurement into shares and compute the
+     # joint randomness parts.
+     leader_meas_share = meas
+     k_joint_rand_parts = []
+     for j in range(Prio3.SHARES-1):
+         helper_meas_share = Prio3.helper_meas_share(
+             j+1, k_helper_meas_shares[j])
+         leader_meas_share = vec_sub(leader_meas_share,
+                                     helper_meas_share)
+         k_joint_rand_parts.append(Prio3.joint_rand_part(
+             j+1, k_helper_blinds[j], helper_meas_share, nonce))
+     k_joint_rand_parts.insert(0, Prio3.joint_rand_part(
+         0, k_leader_blind, leader_meas_share, nonce))
 
-      # Generate the proof and shard it into proof shares.
-      prove_rand = Prio3.prove_rand(k_prove)
-      joint_rand = Prio3.joint_rand(
-          Prio3.joint_rand_seed(k_joint_rand_parts))
-      leader_proof_share = Prio3.Flp.prove(meas, prove_rand, joint_rand)
-      for j in range(Prio3.SHARES-1):
-          leader_proof_share = vec_sub(
-              leader_proof_share,
-              Prio3.helper_proof_share(j+1, k_helper_proof_shares[j]),
-          )
+     # Generate and shard each proof into shares.
+     prove_rands = Prio3.prove_rands(k_prove)
+     joint_rands = Prio3.joint_rands(
+         Prio3.joint_rand_seed(k_joint_rand_parts))
+     leader_proofs_share = []
+     for _ in range(Prio3.PROOFS):
+         prove_rand, prove_rands = front(
+             Prio3.Flp.PROVE_RAND_LEN, prove_rands)
+         joint_rand, joint_rands = front(
+             Prio3.Flp.JOINT_RAND_LEN, joint_rands)
+         leader_proofs_share += Prio3.Flp.prove(meas,
+                                                prove_rand, joint_rand)
+     for j in range(Prio3.SHARES-1):
+         leader_proofs_share = vec_sub(
+             leader_proofs_share,
+             Prio3.helper_proofs_share(j+1, k_helper_proofs_shares[j]),
+         )
 
-      # Each Aggregator's input share contains its measurement share,
-      # proof share, and blind. The public share contains the
-      # Aggregators' joint randomness parts.
-      input_shares = []
-      input_shares.append((
-          leader_meas_share,
-          leader_proof_share,
-          k_leader_blind,
-      ))
-      for j in range(Prio3.SHARES-1):
-          input_shares.append((
-              k_helper_meas_shares[j],
-              k_helper_proof_shares[j],
-              k_helper_blinds[j],
-          ))
-      return (k_joint_rand_parts, input_shares)
+     # Each Aggregator's input share contains its measurement share,
+     # share of proof(s), and blind. The public share contains the
+     # Aggregators' joint randomness parts.
+     input_shares = []
+     input_shares.append((
+         leader_meas_share,
+         leader_proofs_share,
+         k_leader_blind,
+     ))
+     for j in range(Prio3.SHARES-1):
+         input_shares.append((
+             k_helper_meas_shares[j],
+             k_helper_proofs_shares[j],
+             k_helper_blinds[j],
+         ))
+     return (k_joint_rand_parts, input_shares)
 
-    Figure 16: Sharding an encoded measurement with joint randomness.
+     Figure 17: Sharding an encoded measurement with joint randomness.
 
    The difference between this procedure and previous one is that here
-   we compute joint randomness joint_rand and pass it to the proof
-   generationg algorithm.  (In Figure 15 the joint randomness is the
-   empty vector, [].)  This requires generating an additional value,
-   called the "blind", that is incorporated into each input share.
+   we compute joint randomnesses joint_rands, split it into multiple
+   joint_rand, and pass each joint_rand to the proof generationg
+   algorithm.  (In Figure 16 the joint randomness is the empty vector,
+   [].)  This requires generating an additional value, called the
+   "blind", that is incorporated into each input share.
 
    The joint randomness computation involves the following steps:
 
@@ -2496,7 +2647,8 @@ Table of Contents
 
    2.  Compute a "joint randomness seed" from the joint randomness parts
 
-   3.  Compute the joint randomness from the joint randomness seed
+   3.  Compute the joint randomness for each proof evaluation from the
+       joint randomness seed
 
    This three-step process is designed to ensure that the joint
    randomness does not leak the measurement to the Aggregators while
@@ -2511,10 +2663,10 @@ Table of Contents
 
    This section describes the process of recovering output shares from
    the input shares.  The high-level idea is that each Aggregator first
-   queries its measurement and proof share locally, then exchanges its
-   verifier share with the other Aggregators.  The verifier shares are
-   then combined into the verifier message, which is used to decide
-   whether to accept.
+   queries its measurement and share of proof(s) locally, then exchanges
+   its share of verifier(s) with the other Aggregators.  The shares of
+   verifier(s) are then combined into the verifier message(s) used to
+   decide whether to accept.
 
    In addition, for FLPs that require joint randomness, the Aggregators
    must ensure that they have all used the same joint randomness for the
@@ -2529,15 +2681,15 @@ Table of Contents
    procedure some way in its favor.  To mitigate this, the Aggregators
    also check that they have all computed the same joint randomness seed
    before accepting their output shares.  To do so, they exchange their
-   parts of the joint randomness along with their verifier shares.
+   parts of the joint randomness along with their shares of verifier(s).
 
    The definitions of constants and a few auxiliary functions are
    defined in Section 7.2.6.
 
-def prep_init(Prio3, verify_key, agg_id, _agg_param,
+  def prep_init(Prio3, verify_key, agg_id, _agg_param,
               nonce, public_share, input_share):
     k_joint_rand_parts = public_share
-    (meas_share, proof_share, k_blind) = \
+    (meas_share, proofs_share, k_blind) = \
         Prio3.expand_input_share(agg_id, input_share)
     out_share = Prio3.Flp.truncate(meas_share)
 
@@ -2550,21 +2702,30 @@ def prep_init(Prio3, verify_key, agg_id, _agg_param,
         k_joint_rand_parts[agg_id] = k_joint_rand_part
         k_corrected_joint_rand = Prio3.joint_rand_seed(
             k_joint_rand_parts)
-        joint_rand = Prio3.joint_rand(k_corrected_joint_rand)
+        joint_rands = Prio3.joint_rands(k_corrected_joint_rand)
 
     # Query the measurement and proof share.
-    query_rand = Prio3.query_rand(verify_key, nonce)
-    verifier_share = Prio3.Flp.query(meas_share,
-                                     proof_share,
-                                     query_rand,
-                                     joint_rand,
-                                     Prio3.SHARES)
+    query_rands = Prio3.query_rands(verify_key, nonce)
+    verifiers_share = []
+    for _ in range(Prio3.PROOFS):
+        proof_share, proofs_share = front(
+            Prio3.Flp.PROOF_LEN, proofs_share)
+        query_rand, query_rands = front(
+            Prio3.Flp.QUERY_RAND_LEN, query_rands)
+        if Prio3.Flp.JOINT_RAND_LEN > 0:
+            joint_rand, joint_rands = front(
+                Prio3.Flp.JOINT_RAND_LEN, joint_rands)
+        verifiers_share += Prio3.Flp.query(meas_share,
+                                            proof_share,
+                                            query_rand,
+                                            joint_rand,
+                                            Prio3.SHARES)
 
     prep_state = (out_share, k_corrected_joint_rand)
-    prep_share = (verifier_share, k_joint_rand_part)
+    prep_share = (verifiers_share, k_joint_rand_part)
     return (prep_state, prep_share)
 
-def prep_next(Prio3, prep, prep_msg):
+  def prep_next(Prio3, prep, prep_msg):
     k_joint_rand = prep_msg
     (out_share, k_corrected_joint_rand) = prep
 
@@ -2575,18 +2736,21 @@ def prep_next(Prio3, prep, prep_msg):
 
     return out_share
 
-def prep_shares_to_prep(Prio3, _agg_param, prep_shares):
+  def prep_shares_to_prep(Prio3, _agg_param, prep_shares):
     # Unshard the verifier shares into the verifier message.
-    verifier = Prio3.Flp.Field.zeros(Prio3.Flp.VERIFIER_LEN)
+    verifiers = Prio3.Flp.Field.zeros(
+        Prio3.Flp.VERIFIER_LEN * Prio3.PROOFS)
     k_joint_rand_parts = []
-    for (verifier_share, k_joint_rand_part) in prep_shares:
-        verifier = vec_add(verifier, verifier_share)
+    for (verifiers_share, k_joint_rand_part) in prep_shares:
+        verifiers = vec_add(verifiers, verifiers_share)
         if Prio3.Flp.JOINT_RAND_LEN > 0:
             k_joint_rand_parts.append(k_joint_rand_part)
 
-    # Verify that the proof is well-formed and the input is valid.
-    if not Prio3.Flp.decide(verifier):
-        raise ERR_VERIFY  # proof verifier check failed
+    # Verify that each proof is well-formed and the input is valid
+    for _ in range(Prio3.PROOFS):
+        verifier, verifiers = front(Prio3.Flp.VERIFIER_LEN, verifiers)
+        if not Prio3.Flp.decide(verifier):
+            raise ERR_VERIFY  # proof verifier check failed
 
     # Combine the joint randomness parts computed by the
     # Aggregators into the true joint randomness seed. This is
@@ -2596,7 +2760,7 @@ def prep_shares_to_prep(Prio3, _agg_param, prep_shares):
         k_joint_rand = Prio3.joint_rand_seed(k_joint_rand_parts)
     return k_joint_rand
 
-               Figure 17: Preparation state for Prio3.
+                 Figure 18: Preparation state for Prio3.
 
 7.2.3.  Validity of Aggregation Parameters
 
@@ -2606,7 +2770,7 @@ def prep_shares_to_prep(Prio3, _agg_param, prep_shares):
    def is_valid(agg_param, previous_agg_params):
        return len(previous_agg_params) == 0
 
-          Figure 18: Validity of aggregation parameters for Prio3.
+          Figure 19: Validity of aggregation parameters for Prio3.
 
 7.2.4.  Aggregation
 
@@ -2619,7 +2783,7 @@ def prep_shares_to_prep(Prio3, _agg_param, prep_shares):
            agg_share = vec_add(agg_share, out_share)
        return agg_share
 
-                Figure 19: Aggregation algorithm for Prio3.
+                Figure 20: Aggregation algorithm for Prio3.
 
 7.2.5.  Unsharding
 
@@ -2634,7 +2798,7 @@ def prep_shares_to_prep(Prio3, _agg_param, prep_shares):
            agg = vec_add(agg, agg_share)
        return Prio3.Flp.decode(agg, num_measurements)
 
-         Figure 20: Computation of the aggregate result for Prio3.
+         Figure 21: Computation of the aggregate result for Prio3.
 
 7.2.6.  Auxiliary Functions
 
@@ -2645,7 +2809,7 @@ def prep_shares_to_prep(Prio3, _agg_param, prep_shares):
    algorithms.
 
   def helper_meas_share(Prio3, agg_id, k_share):
-      return Prio3.Prg.expand_into_vec(
+      return Prio3.Xof.expand_into_vec(
           Prio3.Flp.Field,
           k_share,
           Prio3.domain_separation_tag(USAGE_MEAS_SHARE),
@@ -2653,42 +2817,42 @@ def prep_shares_to_prep(Prio3, _agg_param, prep_shares):
           Prio3.Flp.MEAS_LEN,
       )
 
-  def helper_proof_share(Prio3, agg_id, k_share):
-      return Prio3.Prg.expand_into_vec(
-          Prio3.Flp.Field,
-          k_share,
-          Prio3.domain_separation_tag(USAGE_PROOF_SHARE),
-          byte(agg_id),
-          Prio3.Flp.PROOF_LEN,
-      )
+  def helper_proofs_share(Prio3, agg_id, k_share):
+    return Prio3.Xof.expand_into_vec(
+        Prio3.Flp.Field,
+        k_share,
+        Prio3.domain_separation_tag(USAGE_PROOF_SHARE),
+        byte(Prio3.PROOFS) + byte(agg_id),
+        Prio3.Flp.PROOF_LEN * Prio3.PROOFS,
+    )
 
   def expand_input_share(Prio3, agg_id, input_share):
-      (meas_share, proof_share, k_blind) = input_share
-      if agg_id > 0:
-          meas_share = Prio3.helper_meas_share(agg_id, meas_share)
-          proof_share = Prio3.helper_proof_share(agg_id, proof_share)
-      return (meas_share, proof_share, k_blind)
+    (meas_share, proofs_share, k_blind) = input_share
+    if agg_id > 0:
+        meas_share = Prio3.helper_meas_share(agg_id, meas_share)
+        proofs_share = Prio3.helper_proofs_share(agg_id, proofs_share)
+    return (meas_share, proofs_share, k_blind)
 
-  def prove_rand(Prio3, k_prove):
-      return Prio3.Prg.expand_into_vec(
-          Prio3.Flp.Field,
-          k_prove,
-          Prio3.domain_separation_tag(USAGE_PROVE_RANDOMNESS),
-          b'',
-          Prio3.Flp.PROVE_RAND_LEN,
-      )
+  def prove_rands(Prio3, k_prove):
+    return Prio3.Xof.expand_into_vec(
+        Prio3.Flp.Field,
+        k_prove,
+        Prio3.domain_separation_tag(USAGE_PROVE_RANDOMNESS),
+        byte(Prio3.PROOFS),
+        Prio3.Flp.PROVE_RAND_LEN * Prio3.PROOFS,
+    )
 
-  def query_rand(Prio3, verify_key, nonce):
-      return Prio3.Prg.expand_into_vec(
-          Prio3.Flp.Field,
-          verify_key,
-          Prio3.domain_separation_tag(USAGE_QUERY_RANDOMNESS),
-          nonce,
-          Prio3.Flp.QUERY_RAND_LEN,
-      )
+  def query_rands(Prio3, verify_key, nonce):
+    return Prio3.Xof.expand_into_vec(
+        Prio3.Flp.Field,
+        verify_key,
+        Prio3.domain_separation_tag(USAGE_QUERY_RANDOMNESS),
+        byte(Prio3.PROOFS) + nonce,
+        Prio3.Flp.QUERY_RAND_LEN * Prio3.PROOFS,
+    )
 
   def joint_rand_part(Prio3, agg_id, k_blind, meas_share, nonce):
-      return Prio3.Prg.derive_seed(
+      return Prio3.Xof.derive_seed(
           k_blind,
           Prio3.domain_separation_tag(USAGE_JOINT_RAND_PART),
           byte(agg_id) + nonce + Prio3.Flp.Field.encode_vec(meas_share),
@@ -2696,21 +2860,21 @@ def prep_shares_to_prep(Prio3, _agg_param, prep_shares):
 
   def joint_rand_seed(Prio3, k_joint_rand_parts):
       """Derive the joint randomness seed from its parts."""
-      return Prio3.Prg.derive_seed(
-          zeros(Prio3.Prg.SEED_SIZE),
+      return Prio3.Xof.derive_seed(
+          zeros(Prio3.Xof.SEED_SIZE),
           Prio3.domain_separation_tag(USAGE_JOINT_RAND_SEED),
           concat(k_joint_rand_parts),
       )
 
-  def joint_rand(Prio3, k_joint_rand_seed):
-      """Derive the joint randomness from its seed."""
-      return Prio3.Prg.expand_into_vec(
-          Prio3.Flp.Field,
-          k_joint_rand_seed,
-          Prio3.domain_separation_tag(USAGE_JOINT_RANDOMNESS),
-          b'',
-          Prio3.Flp.JOINT_RAND_LEN,
-      )
+  def joint_rands(Prio3, k_joint_rand_seed):
+    """Derive the joint randomness from its seed."""
+    return Prio3.Xof.expand_into_vec(
+        Prio3.Flp.Field,
+        k_joint_rand_seed,
+        Prio3.domain_separation_tag(USAGE_JOINT_RANDOMNESS),
+        byte(Prio3.PROOFS),
+        Prio3.Flp.JOINT_RAND_LEN * Prio3.PROOFS,
+    )
 
 7.2.7.  Message Serialization
 
@@ -2719,8 +2883,8 @@ def prep_shares_to_prep(Prio3, _agg_param, prep_shares):
    implementations provide serialization methods for them.
 
    Message structures are defined following Section 3 of [RFC8446]).  In
-   the remainder we use S as an alias for Prio3.Prg.SEED_SIZE and F as
-   an alias for Prio3.Field.ENCODED_SIZE.  PRG seeds are represented as
+   the remainder we use S as an alias for Prio3.Xof.SEED_SIZE and F as
+   an alias for Prio3.Field.ENCODED_SIZE.  XOF seeds are represented as
    follows:
 
    opaque Prio3Seed[S];
@@ -2751,17 +2915,17 @@ def prep_shares_to_prep(Prio3, _agg_param, prep_shares):
 
    In addition, the encoding of the input shares depends on which
    aggregator is receiving the message.  If the aggregator ID is 0, then
-   the input share includes the full measurement and proof share.
+   the input share includes the full measurement and share of proof(s).
    Otherwise, if the aggregator ID is greater than 0, then the
-   measurement and proof shares are represented by PRG seeds.  We shall
-   call the former the "Leader" and the latter the "Helpers".
+   measurement and shares of proof(s) are represented by XOF seeds.  We
+   shall call the former the "Leader" and the latter the "Helpers".
 
    In total there are four variants of the input share.  When joint
    randomness is not used, the Leader's share is structured as follows:
 
    struct {
        Prio3Field meas_share[F * Prio3.Flp.MEAS_LEN];
-       Prio3Field proof_share[F * Prio3.Flp.PROOF_LEN];
+       Prio3Field proofs_share[F * Prio3.Flp.PROOF_LEN * Prio3.PROOFS];
    } Prio3LeaderShare;
 
    When joint randomness is not used, the Helpers' shares are structured
@@ -2769,7 +2933,7 @@ def prep_shares_to_prep(Prio3, _agg_param, prep_shares):
 
    struct {
        Prio3Seed k_meas_share;
-       Prio3Seed k_proof_share;
+       Prio3Seed k_proofs_share;
    } Prio3HelperShare;
 
    When joint randomness is used, the Leader's input share is structured
@@ -2793,17 +2957,17 @@ def prep_shares_to_prep(Prio3, _agg_param, prep_shares):
    When joint randomness is not used, the prep share is structured as
    follows:
 
-   struct {
-       Prio3Field verifier_share[F * Prio3.Flp.VERIFIER_LEN];
-   } Prio3PrepShare;
+struct {
+    Prio3Field verifiers_share[F * Prio3.Flp.VERIFIER_LEN * Prio3.PROOFS];
+} Prio3PrepShare;
 
    When joint randomness is used, the prep share includes the
    Aggregator's joint randomness part and is structured as follows:
 
-   struct {
-       Prio3Field verifier_share[F * Prio3.Flp.VERIFIER_LEN];
-       Prio3Seed k_joint_rand_part;
-   } Prio3PrepShareWithJointRand;
+struct {
+    Prio3Field verifiers_share[F * Prio3.Flp.VERIFIER_LEN * Prio3.PROOFS];
+    Prio3Seed k_joint_rand_part;
+} Prio3PrepShareWithJointRand;
 
 7.2.7.4.  Prep Message
 
@@ -3069,7 +3233,7 @@ def prep_shares_to_prep(Prio3, _agg_param, prep_shares):
            length += g.ARITY + 1
        return length
 
-             Figure 21: Derived methods for validity circuits.
+             Figure 22: Derived methods for validity circuits.
 
 7.3.3.  Construction
 
@@ -3230,7 +3394,7 @@ def prep_shares_to_prep(Prio3, _agg_param, prep_shares):
 
    This section specifies instantiations of Prio3 for various
    measurement types.  Each uses FlpGeneric as the FLP (Section 7.3) and
-   is determined by a validity circuit (Section 7.3.2) and a PRG
+   is determined by a validity circuit (Section 7.3.2) and a XOF
    (Section 6.2).  Test vectors for each can be found in Appendix "Test
    Vectors".
 
@@ -3244,9 +3408,10 @@ def prep_shares_to_prep(Prio3, _agg_param, prep_shares):
    is either one or zero and the aggregate result is the sum of the
    measurements.
 
-   This instance uses PrgSha3 (Section 6.2.1) as its PRG.  Its validity
-   circuit, denoted Count, uses Field64 (Table 3) as its finite field.
-   Its gadget, denoted Mul, is the degree-2, arity-2 gadget defined as
+   This instance uses XofTurboShake128 (Section 6.2.1) as its XOF.  Its
+   validity circuit, denoted Count, uses Field64 (Table 3) as its finite
+   field.  Its gadget, denoted Mul, is the degree-2, arity-2 gadget
+   defined as
 
    def eval(self, Field, inp):
        self.check_gadget_eval(inp)
@@ -3257,8 +3422,9 @@ def prep_shares_to_prep(Prio3, _agg_param, prep_shares):
 
    The Count validity circuit is defined as
 
-def eval(self, meas, joint_rand, _num_shares):
-    return self.GADGETS[0].eval(self.Field, [meas[0], meas[0]]) - meas[0]
+   def eval(self, meas, joint_rand, _num_shares):
+       return self.GADGETS[0].eval(self.Field, [meas[0], meas[0]]) \
+           - meas[0]
 
    The measurement is encoded and decoded as a singleton vector in the
    natural way.  The parameters for this circuit are summarized below.
@@ -3292,27 +3458,21 @@ def eval(self, meas, joint_rand, _num_shares):
    determined range.  Each measurement is an integer in range [0,
    2^bits), where bits is an associated parameter.
 
-   This instance of Prio3 uses PrgSha3 (Section 6.2.1) as its PRG.  Its
-   validity circuit, denoted Sum, uses Field128 (Table 3) as its finite
-   field.  The measurement is encoded as a length-bits vector of field
-   elements, where the lth element of the vector represents the lth bit
-   of the summand:
+   This instance of Prio3 uses XofTurboShake128 (Section 6.2.1) as its
+   XOF.  Its validity circuit, denoted Sum, uses Field128 (Table 3) as
+   its finite field.  The measurement is encoded as a length-bits vector
+   of field elements, where the lth element of the vector represents the
+   lth bit of the summand:
 
    def encode(self, measurement):
        if 0 > measurement or measurement >= 2 ** self.MEAS_LEN:
            raise ERR_INPUT
 
-       encoded = []
-       for l in range(self.MEAS_LEN):
-           encoded.append(self.Field((measurement >> l) & 1))
-       return encoded
+       return self.Field.encode_into_bit_vector(measurement,
+                                                self.MEAS_LEN)
 
    def truncate(self, meas):
-       decoded = self.Field(0)
-       for (l, b) in enumerate(meas):
-           w = self.Field(1 << l)
-           decoded += w * b
-       return [decoded]
+       return [self.Field.decode_from_bit_vector(meas)]
 
    def decode(self, output, _num_measurements):
        return output[0].as_unsigned()
@@ -3358,94 +3518,18 @@ def eval(self, meas, joint_rand, _num_shares):
 
                Table 10: Parameters of validity circuit Sum.
 
-7.4.3.  Prio3Histogram
-
-   This instance of Prio3 allows for estimating the distribution of some
-   quantity by computing a simple histogram.  Each measurement
-   increments one histogram bucket, out of a set of fixed buckets.
-   (Bucket indexing begins at 0.)  For example, the buckets might
-   quantize the real numbers, and each measurement would report the
-   bucket that the corresponding client's real-numbered value falls
-   into.  The aggregate result counts the number of measurements in each
-   bucket.
-
-   This instance of Prio3 uses PrgSha3 (Section 6.2.1) as its PRG.  Its
-   validity circuit, denoted Histogram, uses Field128 (Table 3) as its
-   finite field.  Let length be the number of histogram buckets.  The
-   measurement is encoded as a one-hot vector representing the bucket
-   into which the measurement falls:
-
-   def encode(self, measurement):
-       encoded = [self.Field(0)] * self.length
-       encoded[measurement] = self.Field(1)
-       return encoded
-
-   def truncate(self, meas):
-       return meas
-
-   def decode(self, output, _num_measurements):
-       return [bucket_count.as_unsigned() for bucket_count in output]
-
-   The Histogram validity circuit uses Range2 (see Section 7.4.2) as its
-   single gadget.  It checks for one-hotness in two steps, as follows:
-
-   def eval(self, meas, joint_rand, num_shares):
-       self.check_valid_eval(meas, joint_rand)
-
-       # Check that each bucket is one or zero.
-       range_check = self.Field(0)
-       r = joint_rand[0]
-       for b in meas:
-           range_check += r * self.GADGETS[0].eval(self.Field, [b])
-           r *= joint_rand[0]
-
-       # Check that the buckets sum to 1.
-       sum_check = -self.Field(num_shares).inv()
-       for b in meas:
-           sum_check += b
-
-       out = joint_rand[1] * range_check + \
-           joint_rand[1] ** 2 * sum_check
-       return out
-
-   Note that this circuit depends on the number of shares into which the
-   measurement is sharded.  This is provided to the FLP by Prio3.
-
-                  +================+====================+
-                  | Parameter      | Value              |
-                  +================+====================+
-                  | GADGETS        | [Range2]           |
-                  +----------------+--------------------+
-                  | GADGET_CALLS   | [length]           |
-                  +----------------+--------------------+
-                  | MEAS_LEN       | length             |
-                  +----------------+--------------------+
-                  | OUTPUT_LEN     | length             |
-                  +----------------+--------------------+
-                  | JOINT_RAND_LEN | 2                  |
-                  +----------------+--------------------+
-                  | Measurement    | Unsigned           |
-                  +----------------+--------------------+
-                  | AggResult      | Vec[Unsigned]      |
-                  +----------------+--------------------+
-                  | Field          | Field128 (Table 3) |
-                  +----------------+--------------------+
-
-                      Table 11: Parameters of validity
-                             circuit Histogram.
-
-7.4.4.  Prio3SumVec
+7.4.3.  Prio3SumVec
 
    This instance of Prio3 supports summing a vector of integers.  It has
    three parameters, length, bits, and chunk_length.  Each measurement
    is a vector of positive integers with length equal to the length
    parameter.  Each element of the measurement is an integer in the
    range [0, 2^bits).  It is RECOMMENDED to set chunk_length to an
-   integer near to the square root of length * bits.  The optimal choice
-   for any measurement size will vary slightly due to rounding.
+   integer near the square root of length * bits (see Section 7.4.3.1).
 
-   This instance uses PrgSha3 (Section 6.2.1) as its PRG.  Its validity
-   circuit, denoted SumVec, uses Field128 (Table 3) as its finite field.
+   This instance uses XofTurboShake128 (Section 6.2.1) as its XOF.  Its
+   validity circuit, denoted SumVec, uses Field128 (Table 3) as its
+   finite field.
 
    Measurements are encoded as a vector of field elements with length
    length * bits.  The field elements in the encoded vector represent
@@ -3461,17 +3545,15 @@ def eval(self, meas, joint_rand, _num_shares):
            if 0 > val or val >= 2 ** self.bits:
                raise ERR_INPUT
 
-           for l in range(self.bits):
-               encoded.append(self.Field((val >> l) & 1))
-
+           encoded += self.Field.encode_into_bit_vector(val, self.bits)
        return encoded
 
    def truncate(self, meas):
-       truncated = [self.Field(0) for _ in range(self.length)]
+       truncated = []
        for i in range(self.length):
-           for j in range(self.bits):
-               weight = self.Field(1 << j)
-               truncated[i] += weight * meas[i * self.bits + j]
+           truncated.append(self.Field.decode_from_bit_vector(
+               meas[i * self.bits: (i + 1) * self.bits]
+           ))
        return truncated
 
    def decode(self, output, _num_measurements):
@@ -3481,8 +3563,9 @@ def eval(self, meas, joint_rand, _num_shares):
    proof size.  This optimization for "parallel-sum circuits" is
    described in [BBCGGI19], section 4.4.  Briefly, for circuits that add
    up the output of multiple identical subcircuits, it is possible to
-   achieve smaller proof sizes (on the order of O(sqrt(n)) instead of
-   O(n)) by packaging more than one such subcircuit into a gadget.
+   achieve smaller proof sizes (on the order of O(sqrt(MEAS_LEN))
+   instead of O(MEAS_LEN)) by packaging more than one such subcircuit
+   into a gadget.
 
    The ParallelSum gadget is parameterized with an arithmetic
    subcircuit, and a count of how many times it evaluates that
@@ -3503,16 +3586,16 @@ def eval(self, meas, joint_rand, _num_shares):
           out += self.subcircuit.eval(Field, inp[start_index:end_index])
       return out
 
-   The validity circuit checks that the encoded measurement consists of
-   ones and zeros.  Rather than use the Range2 gadget on each element,
-   as in the Sum validity circuit, it instead uses a Mul subcircuit and
-   "free" constant multiplication and addition gates to simultaneously
-   evaluate the same range check polynomial on each element, and
-   multiply by a constant.  One of the two Mul subcircuit inputs is
-   equal to a measurement element multiplied by a power of the joint
-   randomness value, and the other is equal to the same measurement
-   element minus one.  These Mul subcircuits are evaluated by a
-   ParallelSum gadget, and the results are added up both within the
+   The SumVec validity circuit checks that the encoded measurement
+   consists of ones and zeros.  Rather than use the Range2 gadget on
+   each element, as in the Sum validity circuit, it instead uses Mul
+   subcircuits and "free" constant multiplication and addition gates to
+   simultaneously evaluate the same range check polynomial on each
+   element, and multiply by a constant.  One of the two Mul subcircuit
+   inputs is equal to a measurement element multiplied by a power of the
+   joint randomness value, and the other is equal to the same
+   measurement element minus one.  These Mul subcircuits are evaluated
+   by a ParallelSum gadget, and the results are added up both within the
    ParallelSum gadget and after it.
 
    def eval(self, meas, joint_rand, num_shares):
@@ -3563,7 +3646,131 @@ def eval(self, meas, joint_rand, _num_shares):
           | Field          | Field128 (Table 3)                 |
           +----------------+------------------------------------+
 
-              Table 12: Parameters of validity circuit SumVec.
+              Table 11: Parameters of validity circuit SumVec.
+
+7.4.3.1.  Selection of ParallelSum chunk length
+
+   The chunk_length parameter provides a trade-off between the arity of
+   the ParallelSum gadget and the number of times the gadget is called.
+   The proof length is asymptotically minimized when the chunk length is
+   near the square root of the length of the measurement.  However, the
+   relationship between VDAF parameters and proof length is complicated,
+   involving two forms of rounding (the circuit pads the inputs to its
+   last ParallelSum gadget call, up to the chunk length, and FlpGeneric
+   rounds the degree of wire polynomials -- determined by the number of
+   times a gadget is called -- up to the next power of two).  Therefore,
+   the optimal choice of chunk_length for a concrete measurement size
+   will vary, and must be found through trial and error.  Setting
+   chunk_length equal to the square root of the appropriate measurement
+   length will result in proofs up to 50% larger than the optimal proof
+   size.
+
+7.4.4.  Prio3Histogram
+
+   This instance of Prio3 allows for estimating the distribution of some
+   quantity by computing a simple histogram.  Each measurement
+   increments one histogram bucket, out of a set of fixed buckets.
+   (Bucket indexing begins at 0.)  For example, the buckets might
+   quantize the real numbers, and each measurement would report the
+   bucket that the corresponding client's real-numbered value falls
+   into.  The aggregate result counts the number of measurements in each
+   bucket.
+
+   This instance of Prio3 uses XofTurboShake128 (Section 6.2.1) as its
+   XOF.  Its validity circuit, denoted Histogram, uses Field128
+   (Table 3) as its finite field.  It has two parameters, length, the
+   number of histogram buckets, and chunk_length, which is used by by a
+   circuit optimization described below.  It is RECOMMENDED to set
+   chunk_length to an integer near the square root of length (see
+   Section 7.4.3.1).
+
+   The measurement is encoded as a one-hot vector representing the
+   bucket into which the measurement falls:
+
+   def encode(self, measurement):
+       encoded = [self.Field(0)] * self.length
+       encoded[measurement] = self.Field(1)
+       return encoded
+
+   def truncate(self, meas):
+       return meas
+
+   def decode(self, output, _num_measurements):
+       return [bucket_count.as_unsigned() for bucket_count in output]
+
+   The Histogram validity circuit checks for one-hotness in two steps,
+   by checking that the encoded measurement consists of ones and zeros,
+   and by checking that the sum of all elements in the encoded
+   measurement is equal to one.  All the individual checks are combined
+   together in a random linear combination.
+
+   As in the SumVec validity circuit (Section 7.4.3), the first part of
+   the validity circuit uses the ParallelSum gadget to perform range
+   checks while achieving a smaller proof size.  The ParallelSum gadget
+   uses Mul subcircuits to evaluate a range check polynomial on each
+   element, and includes an additional constant multiplication.  One of
+   the two Mul subcircuit inputs is equal to a measurement element
+   multiplied by a power of the first joint randomness value, and the
+   other is equal to the same measurement element minus one.  The
+   results are added up both within the ParallelSum gadget and after it.
+
+   def eval(self, meas, joint_rand, num_shares):
+       self.check_valid_eval(meas, joint_rand)
+
+       # Check that each bucket is one or zero.
+       range_check = self.Field(0)
+       r = joint_rand[0]
+       r_power = r
+       shares_inv = self.Field(num_shares).inv()
+       for i in range(self.GADGET_CALLS[0]):
+           inputs = [None] * (2 * self.chunk_length)
+           for j in range(self.chunk_length):
+               index = i * self.chunk_length + j
+               if index < len(meas):
+                   meas_elem = meas[index]
+               else:
+                   meas_elem = self.Field(0)
+
+               inputs[j * 2] = r_power * meas_elem
+               inputs[j * 2 + 1] = meas_elem - shares_inv
+
+               r_power *= r
+
+           range_check += r * self.GADGETS[0].eval(self.Field, inputs)
+
+       # Check that the buckets sum to 1.
+       sum_check = -shares_inv
+       for b in meas:
+           sum_check += b
+
+       out = joint_rand[1] * range_check + \
+           joint_rand[1] ** 2 * sum_check
+       return out
+
+   Note that this circuit depends on the number of shares into which the
+   measurement is sharded.  This is provided to the FLP by Prio3.
+
+    +================+===============================================+
+    | Parameter      | Value                                         |
+    +================+===============================================+
+    | GADGETS        | [ParallelSum(Mul(), chunk_length)]            |
+    +----------------+-----------------------------------------------+
+    | GADGET_CALLS   | [(length + chunk_length - 1) // chunk_length] |
+    +----------------+-----------------------------------------------+
+    | MEAS_LEN       | length                                        |
+    +----------------+-----------------------------------------------+
+    | OUTPUT_LEN     | length                                        |
+    +----------------+-----------------------------------------------+
+    | JOINT_RAND_LEN | 2                                             |
+    +----------------+-----------------------------------------------+
+    | Measurement    | Unsigned                                      |
+    +----------------+-----------------------------------------------+
+    | AggResult      | Vec[Unsigned]                                 |
+    +----------------+-----------------------------------------------+
+    | Field          | Field128 (Table 3)                            |
+    +----------------+-----------------------------------------------+
+
+           Table 12: Parameters of validity circuit Histogram.
 
 8.  Poplar1
 
@@ -3678,7 +3885,10 @@ def eval(self, meas, joint_rand, _num_shares):
       values beta, and a binder string.  The value of alpha MUST be in
       range [0, 2^BITS).  The output is a public part that is sent to
       all Aggregators and a vector of private IDPF keys, one for each
-      aggregator.
+      aggregator.  The binder string is used to derive the key in the
+      underlying XofFixedKeyAes128 XOF that is used for expanding seeds
+      at each level.  It MUST be chosen uniformly at random by the
+      Client (see Section 9.2).
 
          TODO(issue #255) Decide whether to treat the public share as an
          opaque byte string or to replace it with an explicit type.
@@ -3730,7 +3940,7 @@ def eval(self, meas, joint_rand, _num_shares):
     | VALUE_LEN  | Number of field elements of each output value      |
     +------------+----------------------------------------------------+
     | RAND_SIZE  | Size of the random string consumed by the IDPF-key |
-    |            | generator.  Equal to twice the PRG's seed size.    |
+    |            | generator.  Equal to twice the XOF's seed size.    |
     +------------+----------------------------------------------------+
     | KEY_SIZE   | Size in bytes of each IDPF key                     |
     +------------+----------------------------------------------------+
@@ -3753,7 +3963,7 @@ def eval(self, meas, joint_rand, _num_shares):
    This section specifies Poplar1, an implementation of the Vdaf
    interface (Section 5).  It is defined in terms of any Idpf
    (Section 8.1) for which Idpf.SHARES == 2 and Idpf.VALUE_LEN == 2 and
-   an implementation of Prg (Section 6.2).  The associated constants and
+   an implementation of Xof (Section 6.2).  The associated constants and
    types required by the Vdaf interface are defined in Table 14.  The
    methods required for sharding, preparation, aggregation, and
    unsharding are described in the remaining subsections.  These methods
@@ -3762,9 +3972,9 @@ def eval(self, meas, joint_rand, _num_shares):
      +=================+============================================+
      | Parameter       | Value                                      |
      +=================+============================================+
-     | VERIFY_KEY_SIZE | Prg.SEED_SIZE                              |
+     | VERIFY_KEY_SIZE | Xof.SEED_SIZE                              |
      +-----------------+--------------------------------------------+
-     | RAND_SIZE       | Prg.SEED_SIZE * 3 + Idpf.RAND_SIZE         |
+     | RAND_SIZE       | Xof.SEED_SIZE * 3 + Idpf.RAND_SIZE         |
      +-----------------+--------------------------------------------+
      | NONCE_SIZE      | 16                                         |
      +-----------------+--------------------------------------------+
@@ -3830,7 +4040,7 @@ def eval(self, meas, joint_rand, _num_shares):
    follows.
 
    def shard(Poplar1, measurement, nonce, rand):
-       l = Poplar1.Prg.SEED_SIZE
+       l = Poplar1.Xof.SEED_SIZE
 
        # Split the random input into random input for IDPF key
        # generation, correlated randomness, and sharding.
@@ -3841,10 +4051,10 @@ def eval(self, meas, joint_rand, _num_shares):
        corr_seed, seeds = front(2, seeds)
        (k_shard,), seeds = front(1, seeds)
 
-       prg = Poplar1.Prg(
+       xof = Poplar1.Xof(
            k_shard,
            Poplar1.domain_separation_tag(USAGE_SHARD_RAND),
-           b'',
+           nonce,
        )
 
        # Construct the IDPF values for each level of the IDPF tree.
@@ -3854,31 +4064,32 @@ def eval(self, meas, joint_rand, _num_shares):
        # to verify the one-hotness of their output shares.
        beta_inner = [
            [Poplar1.Idpf.FieldInner(1), k]
-           for k in prg.next_vec(Poplar1.Idpf.FieldInner,
+           for k in xof.next_vec(Poplar1.Idpf.FieldInner,
                                  Poplar1.Idpf.BITS - 1)
        ]
        beta_leaf = [Poplar1.Idpf.FieldLeaf(1)] + \
-           prg.next_vec(Poplar1.Idpf.FieldLeaf, 1)
+           xof.next_vec(Poplar1.Idpf.FieldLeaf, 1)
 
        # Generate the IDPF keys.
        (public_share, keys) = Poplar1.Idpf.gen(measurement,
                                                beta_inner,
                                                beta_leaf,
+                                               nonce,
                                                idpf_rand)
 
        # Generate correlated randomness used by the Aggregators to
-       # compute a sketch over their output shares. PRG seeds are
+       # compute a sketch over their output shares. XOF seeds are
        # used to encode shares of the `(a, b, c)` triples.
        # (See [BBCGGI21, Appendix C.4].)
        corr_offsets = vec_add(
-           Poplar1.Prg.expand_into_vec(
+           Poplar1.Xof.expand_into_vec(
                Poplar1.Idpf.FieldInner,
                corr_seed[0],
                Poplar1.domain_separation_tag(USAGE_CORR_INNER),
                byte(0) + nonce,
                3 * (Poplar1.Idpf.BITS-1),
            ),
-           Poplar1.Prg.expand_into_vec(
+           Poplar1.Xof.expand_into_vec(
                Poplar1.Idpf.FieldInner,
                corr_seed[1],
                Poplar1.domain_separation_tag(USAGE_CORR_INNER),
@@ -3887,14 +4098,14 @@ def eval(self, meas, joint_rand, _num_shares):
            ),
        )
        corr_offsets += vec_add(
-           Poplar1.Prg.expand_into_vec(
+           Poplar1.Xof.expand_into_vec(
                Poplar1.Idpf.FieldLeaf,
                corr_seed[0],
                Poplar1.domain_separation_tag(USAGE_CORR_LEAF),
                byte(0) + nonce,
                3,
            ),
-           Poplar1.Prg.expand_into_vec(
+           Poplar1.Xof.expand_into_vec(
                Poplar1.Idpf.FieldLeaf,
                corr_seed[1],
                Poplar1.domain_separation_tag(USAGE_CORR_LEAF),
@@ -3914,7 +4125,7 @@ def eval(self, meas, joint_rand, _num_shares):
            (a, b, c), corr_offsets = corr_offsets[:3], corr_offsets[3:]
            A = -Field(2) * a + k
            B = a ** 2 + b - a * k + c
-           corr1 = prg.next_vec(Field, 2)
+           corr1 = xof.next_vec(Field, 2)
            corr0 = vec_sub([A, B], corr1)
            if level < Poplar1.Idpf.BITS - 1:
                corr_inner[0] += corr0
@@ -3927,7 +4138,7 @@ def eval(self, meas, joint_rand, _num_shares):
        input_shares = list(zip(keys, corr_seed, corr_inner, corr_leaf))
        return (public_share, input_shares)
 
-               Figure 22: The sharding algorithm for Poplar1.
+               Figure 23: The sharding algorithm for Poplar1.
 
 8.2.2.  Preparation
 
@@ -3948,113 +4159,113 @@ def eval(self, meas, joint_rand, _num_shares):
    Note that enforcing the order is not strictly necessary, but this
    does allow uniqueness to be determined more efficiently.
 
-def prep_init(Poplar1, verify_key, agg_id, agg_param,
-              nonce, public_share, input_share):
-    (level, prefixes) = agg_param
-    (key, corr_seed, corr_inner, corr_leaf) = input_share
-    Field = Poplar1.Idpf.current_field(level)
+  def prep_init(Poplar1, verify_key, agg_id, agg_param,
+                nonce, public_share, input_share):
+      (level, prefixes) = agg_param
+      (key, corr_seed, corr_inner, corr_leaf) = input_share
+      Field = Poplar1.Idpf.current_field(level)
 
-    # Ensure that candidate prefixes are all unique and appear in
-    # lexicographic order.
-    for i in range(1,len(prefixes)):
-        if prefixes[i-1] >= prefixes[i]:
-            raise ERR_INPUT # out-of-order prefix
+      # Ensure that candidate prefixes are all unique and appear in
+      # lexicographic order.
+      for i in range(1,len(prefixes)):
+          if prefixes[i-1] >= prefixes[i]:
+              raise ERR_INPUT # out-of-order prefix
 
-    # Evaluate the IDPF key at the given set of prefixes.
-    value = Poplar1.Idpf.eval(
-        agg_id, public_share, key, level, prefixes)
+      # Evaluate the IDPF key at the given set of prefixes.
+      value = Poplar1.Idpf.eval(
+          agg_id, public_share, key, level, prefixes, nonce)
 
-    # Get shares of the correlated randomness for computing the
-    # Aggregator's share of the sketch for the given level of the IDPF
-    # tree.
-    if level < Poplar1.Idpf.BITS - 1:
-        corr_prg = Poplar1.Prg(
-            corr_seed,
-            Poplar1.domain_separation_tag(USAGE_CORR_INNER),
-            byte(agg_id) + nonce,
-        )
-        # Fast-forward the PRG state to the current level.
-        corr_prg.next_vec(Field, 3 * level)
-    else:
-        corr_prg = Poplar1.Prg(
-            corr_seed,
-            Poplar1.domain_separation_tag(USAGE_CORR_LEAF),
-            byte(agg_id) + nonce,
-        )
-    (a_share, b_share, c_share) = corr_prg.next_vec(Field, 3)
-    (A_share, B_share) = corr_inner[2*level:2*(level+1)] \
-        if level < Poplar1.Idpf.BITS - 1 else corr_leaf
+      # Get shares of the correlated randomness for computing the
+      # Aggregator's share of the sketch for the given level of the IDPF
+      # tree.
+      if level < Poplar1.Idpf.BITS - 1:
+          corr_xof = Poplar1.Xof(
+              corr_seed,
+              Poplar1.domain_separation_tag(USAGE_CORR_INNER),
+              byte(agg_id) + nonce,
+          )
+          # Fast-forward the XOF state to the current level.
+          corr_xof.next_vec(Field, 3 * level)
+      else:
+          corr_xof = Poplar1.Xof(
+              corr_seed,
+              Poplar1.domain_separation_tag(USAGE_CORR_LEAF),
+              byte(agg_id) + nonce,
+          )
+      (a_share, b_share, c_share) = corr_xof.next_vec(Field, 3)
+      (A_share, B_share) = corr_inner[2*level:2*(level+1)] \
+          if level < Poplar1.Idpf.BITS - 1 else corr_leaf
 
-    # Compute the Aggregator's first round of the sketch. These are
-    # called the "masked input values" [BBCGGI21, Appendix C.4].
-    verify_rand_prg = Poplar1.Prg(
-        verify_key,
-        Poplar1.domain_separation_tag(USAGE_VERIFY_RAND),
-        nonce + to_be_bytes(level, 2),
-    )
-    verify_rand = verify_rand_prg.next_vec(Field, len(prefixes))
-    sketch_share = [a_share, b_share, c_share]
-    out_share = []
-    for (i, r) in enumerate(verify_rand):
-        [data_share, auth_share] = value[i]
-        sketch_share[0] += data_share * r
-        sketch_share[1] += data_share * r ** 2
-        sketch_share[2] += auth_share * r
-        out_share.append(data_share)
+      # Compute the Aggregator's first round of the sketch. These are
+      # called the "masked input values" [BBCGGI21, Appendix C.4].
+      verify_rand_xof = Poplar1.Xof(
+          verify_key,
+          Poplar1.domain_separation_tag(USAGE_VERIFY_RAND),
+          nonce + to_be_bytes(level, 2),
+      )
+      verify_rand = verify_rand_xof.next_vec(Field, len(prefixes))
+      sketch_share = [a_share, b_share, c_share]
+      out_share = []
+      for (i, r) in enumerate(verify_rand):
+          [data_share, auth_share] = value[i]
+          sketch_share[0] += data_share * r
+          sketch_share[1] += data_share * r ** 2
+          sketch_share[2] += auth_share * r
+          out_share.append(data_share)
 
-    prep_mem = [A_share, B_share, Field(agg_id)] + out_share
-    return ((b'sketch round 1', level, prep_mem),
-            sketch_share)
+      prep_mem = [A_share, B_share, Field(agg_id)] + out_share
+      return ((b'sketch round 1', level, prep_mem),
+              sketch_share)
 
-def prep_next(Poplar1, prep_state, prep_msg):
-    prev_sketch = prep_msg
-    (step, level, prep_mem) = prep_state
-    Field = Poplar1.Idpf.current_field(level)
+  def prep_next(Poplar1, prep_state, prep_msg):
+      prev_sketch = prep_msg
+      (step, level, prep_mem) = prep_state
+      Field = Poplar1.Idpf.current_field(level)
 
-    if step == b'sketch round 1':
-        if prev_sketch == None:
-            prev_sketch = Field.zeros(3)
-        elif len(prev_sketch) != 3:
-            raise ERR_INPUT  # prep message malformed
-        (A_share, B_share, agg_id), prep_mem = \
-            prep_mem[:3], prep_mem[3:]
-        sketch_share = [
-            agg_id * (prev_sketch[0] ** 2
-                      - prev_sketch[1]
-                      - prev_sketch[2])
-            + A_share * prev_sketch[0]
-            + B_share
-        ]
-        return ((b'sketch round 2', level, prep_mem),
-                sketch_share)
+      if step == b'sketch round 1':
+          if prev_sketch == None:
+              prev_sketch = Field.zeros(3)
+          elif len(prev_sketch) != 3:
+              raise ERR_INPUT  # prep message malformed
+          (A_share, B_share, agg_id), prep_mem = \
+              prep_mem[:3], prep_mem[3:]
+          sketch_share = [
+              agg_id * (prev_sketch[0] ** 2
+                        - prev_sketch[1]
+                        - prev_sketch[2])
+              + A_share * prev_sketch[0]
+              + B_share
+          ]
+          return ((b'sketch round 2', level, prep_mem),
+                  sketch_share)
 
-    elif step == b'sketch round 2':
-        if prev_sketch == None:
-            return prep_mem  # Output shares
-        else:
-            raise ERR_INPUT  # prep message malformed
+      elif step == b'sketch round 2':
+          if prev_sketch == None:
+              return prep_mem  # Output shares
+          else:
+              raise ERR_INPUT  # prep message malformed
 
-    raise ERR_INPUT  # unexpected input
+      raise ERR_INPUT  # unexpected input
 
-def prep_shares_to_prep(Poplar1, agg_param, prep_shares):
-    if len(prep_shares) != 2:
-        raise ERR_INPUT  # unexpected number of prep shares
-    (level, _) = agg_param
-    Field = Poplar1.Idpf.current_field(level)
-    sketch = vec_add(prep_shares[0], prep_shares[1])
-    if len(sketch) == 3:
-        return sketch
-    elif len(sketch) == 1:
-        if sketch == Field.zeros(1):
-            # In order to reduce communication overhead, let `None` denote
-            # a successful sketch verification.
-            return None
-        else:
-            raise ERR_VERIFY  # sketch verification failed
-    else:
-        raise ERR_INPUT  # unexpected input length
+  def prep_shares_to_prep(Poplar1, agg_param, prep_shares):
+      if len(prep_shares) != 2:
+          raise ERR_INPUT  # unexpected number of prep shares
+      (level, _) = agg_param
+      Field = Poplar1.Idpf.current_field(level)
+      sketch = vec_add(prep_shares[0], prep_shares[1])
+      if len(sketch) == 3:
+          return sketch
+      elif len(sketch) == 1:
+          if sketch == Field.zeros(1):
+              # In order to reduce communication overhead, let `None`
+              # denote a successful sketch verification.
+              return None
+          else:
+              raise ERR_VERIFY  # sketch verification failed
+      else:
+          raise ERR_INPUT  # unexpected input length
 
-              Figure 23: Preparation state for Poplar1.
+                Figure 24: Preparation state for Poplar1.
 
 8.2.3.  Validity of Aggregation Parameters
 
@@ -4070,7 +4281,7 @@ def prep_shares_to_prep(Poplar1, agg_param, prep_shares):
            for (other_level, _) in previous_agg_params
        )
 
-         Figure 24: Validity of aggregation parameters for Poplar1.
+         Figure 25: Validity of aggregation parameters for Poplar1.
 
 8.2.4.  Aggregation
 
@@ -4084,7 +4295,7 @@ def prep_shares_to_prep(Poplar1, agg_param, prep_shares):
            agg_share = vec_add(agg_share, out_share)
        return agg_share
 
-               Figure 25: Aggregation algorithm for Poplar1.
+               Figure 26: Aggregation algorithm for Poplar1.
 
 8.2.5.  Unsharding
 
@@ -4100,7 +4311,7 @@ def prep_shares_to_prep(Poplar1, agg_param, prep_shares):
            agg = vec_add(agg, agg_share)
        return list(map(lambda x: x.as_unsigned(), agg))
 
-        Figure 26: Computation of the aggregate result for Poplar1.
+        Figure 27: Computation of the aggregate result for Poplar1.
 
 8.2.6.  Message Serialization
 
@@ -4109,9 +4320,9 @@ def prep_shares_to_prep(Poplar1, agg_param, prep_shares):
    implementations provide serialization methods for them.
 
    Message structures are defined following Section 3 of [RFC8446]).  In
-   the remainder we use S as an alias for Poplar1.Prg.SEED_SIZE, Fi as
+   the remainder we use S as an alias for Poplar1.Xof.SEED_SIZE, Fi as
    an alias for Poplar1.Idpf.FieldInner and Fl as an alias for
-   Poplar1.Idpf.FieldLeaf.  PRG seeds are represented as follows:
+   Poplar1.Idpf.FieldLeaf.  XOF seeds are represented as follows:
 
    opaque Poplar1Seed[S];
 
@@ -4185,28 +4396,30 @@ def prep_shares_to_prep(Poplar1, agg_param, prep_shares):
 
    For the first round and leaf field:
 
-struct {
-    Poplar1FieldLeaf sketch[Fl * 3];
-} Poplar1PrepMessageRoundOneLeaf;
+   struct {
+       Poplar1FieldLeaf sketch[Fl * 3];
+   } Poplar1PrepMessageRoundOneLeaf;
 
-Note that these messages have the same structures as the prep shares for the
-first round.
+   Note that these messages have the same structures as the prep shares
+   for the first round.
 
-The second-round prep message is the empty string. This is because the sketch
-shares are expected to sum to a particular value if the output shares are
-valid; we represent a successful preparation with the empty string and
-otherwise return an error.
+   The second-round prep message is the empty string.  This is because
+   the sketch shares are expected to sum to a particular value if the
+   output shares are valid; we represent a successful preparation with
+   the empty string and otherwise return an error.
 
-#### Aggregate Share
+8.2.6.5.  Aggregate Share
 
-The encoding of the aggregate share depends on whether the inner or leaf field
-is used, and the number of candidate prefixes. Both of these are determined by
- the aggregation parameter.
+   The encoding of the aggregate share depends on whether the inner or
+   leaf field is used, and the number of candidate prefixes.  Both of
+   these are determined by the aggregation parameter.
 
-Let `prefix_count` denote the number of candidate prefixes. For the inner field:
+   Let prefix_count denote the number of candidate prefixes.  For the
+   inner field:
 
-   struct { Poplar1FieldInner agg_share[Fi * prefix_count]; }
-   Poplar1AggShareInner; ~~~
+   struct {
+       Poplar1FieldInner agg_share[Fi * prefix_count];
+   } Poplar1AggShareInner;
 
    For the leaf field:
 
@@ -4214,7 +4427,7 @@ Let `prefix_count` denote the number of candidate prefixes. For the inner field:
        Poplar1FieldLeaf agg_share[Fl * prefix_count];
    } Poplar1AggShareLeaf;
 
-8.2.6.5.  Aggregation Parameter
+8.2.6.6.  Aggregation Parameter
 
    The aggregation parameter is encoded as follows:
 
@@ -4272,9 +4485,9 @@ Let `prefix_count` denote the number of candidate prefixes. For the inner field:
    The constant and type definitions required by the Idpf interface are
    given in Table 16.
 
-   IdpfPoplar requires a PRG for deriving the output shares, as well as
+   IdpfPoplar requires a XOF for deriving the output shares, as well as
    a variety of other artifacts used internally.  For performance
-   reasons, we instantiate this object using PrgFixedKeyAes128
+   reasons, we instantiate this object using XofFixedKeyAes128
    (Section 6.2.2).  See Section 9.4 for justification of this choice.
 
                    +============+======================+
@@ -4286,7 +4499,7 @@ Let `prefix_count` denote the number of candidate prefixes. For the inner field:
                    +------------+----------------------+
                    | VALUE_LEN  | any positive integer |
                    +------------+----------------------+
-                   | KEY_SIZE   | Prg.SEED_SIZE        |
+                   | KEY_SIZE   | Xof.SEED_SIZE        |
                    +------------+----------------------+
                    | FieldInner | Field64 (Table 3)    |
                    +------------+----------------------+
@@ -4315,8 +4528,8 @@ Let `prefix_count` denote the number of candidate prefixes. For the inner field:
            raise ERR_INPUT # unexpected length for random input
 
        init_seed = [
-           rand[:PrgFixedKeyAes128.SEED_SIZE],
-           rand[PrgFixedKeyAes128.SEED_SIZE:],
+           rand[:XofFixedKeyAes128.SEED_SIZE],
+           rand[XofFixedKeyAes128.SEED_SIZE:],
        ]
 
        seed = init_seed.copy()
@@ -4361,7 +4574,7 @@ Let `prefix_count` denote the number of candidate prefixes. For the inner field:
        public_share = IdpfPoplar.encode_public_share(correction_words)
        return (public_share, init_seed)
 
-          Figure 27: IDPF-key generation algorithm of IdpfPoplar.
+          Figure 28: IDPF-key generation algorithm of IdpfPoplar.
 
 8.3.2.  Key Evaluation
 
@@ -4452,25 +4665,29 @@ def eval_next(IdpfPoplar, prev_seed, prev_ctrl,
 
     return (next_seed, next_ctrl, y)
 
-    Figure 28: IDPF-evaluation generation algorithm of IdpfPoplar.
+    Figure 29: IDPF-evaluation generation algorithm of IdpfPoplar.
 
 8.3.3.  Auxiliary Functions
 
    def extend(IdpfPoplar, seed, binder):
-       prg = PrgFixedKeyAes128(seed, format_dst(1, 0, 0), binder)
+       xof = XofFixedKeyAes128(seed, format_dst(1, 0, 0), binder)
        s = [
-           prg.next(PrgFixedKeyAes128.SEED_SIZE),
-           prg.next(PrgFixedKeyAes128.SEED_SIZE),
+           bytearray(xof.next(XofFixedKeyAes128.SEED_SIZE)),
+           bytearray(xof.next(XofFixedKeyAes128.SEED_SIZE)),
        ]
-       b = prg.next(1)[0]
-       t = [Field2(b & 1), Field2((b >> 1) & 1)]
+       # Use the least significant bits as the control bit correction,
+       # and then zero it out. This gives effectively 127 bits of
+       # security, but reduces the number of AES calls needed by 1/3.
+       t = [Field2(s[0][0] & 1), Field2(s[1][0] & 1)]
+       s[0][0] &= 0xFE
+       s[1][0] &= 0xFE
        return (s, t)
 
    def convert(IdpfPoplar, level, seed, binder):
-       prg = PrgFixedKeyAes128(seed, format_dst(1, 0, 1), binder)
-       next_seed = prg.next(PrgFixedKeyAes128.SEED_SIZE)
+       xof = XofFixedKeyAes128(seed, format_dst(1, 0, 1), binder)
+       next_seed = xof.next(XofFixedKeyAes128.SEED_SIZE)
        Field = IdpfPoplar.current_field(level)
-       w = prg.next_vec(Field, IdpfPoplar.VALUE_LEN)
+       w = xof.next_vec(Field, IdpfPoplar.VALUE_LEN)
        return (next_seed, w)
 
    def encode_public_share(IdpfPoplar, correction_words):
@@ -4497,7 +4714,7 @@ def eval_next(IdpfPoplar, prev_seed, prev_ctrl,
                control_bits[level * 2],
                control_bits[level * 2 + 1],
            )
-           l = PrgFixedKeyAes128.SEED_SIZE
+           l = XofFixedKeyAes128.SEED_SIZE
            seed_cw, encoded = encoded[:l], encoded[l:]
            l = Field.ENCODED_SIZE * IdpfPoplar.VALUE_LEN
            encoded_w_cw, encoded = encoded[:l], encoded[l:]
@@ -4507,7 +4724,7 @@ def eval_next(IdpfPoplar, prev_seed, prev_ctrl,
            raise ERR_DECODE
        return correction_words
 
-                Figure 29: Helper functions for IdpfPoplar.
+                Figure 30: Helper functions for IdpfPoplar.
 
    Here, pack_bits() takes a list of bits, packs each group of eight
    bits into a byte, in LSB to MSB order, padding the most significant
@@ -4522,8 +4739,9 @@ def eval_next(IdpfPoplar, prev_seed, prev_ctrl,
 8.4.  Instantiation
 
    By default, Poplar1 is instantiated with IdpfPoplar (VALUE_LEN == 2)
-   and PrgSha3 (Section 6.2.1).  This VDAF is suitable for any positive
-   value of BITS.  Test vectors can be found in Appendix "Test Vectors".
+   and XofTurboShake128 (Section 6.2.1).  This VDAF is suitable for any
+   positive value of BITS.  Test vectors can be found in Appendix "Test
+   Vectors".
 
 9.  Security Considerations
 
@@ -4636,16 +4854,16 @@ def eval_next(IdpfPoplar, prev_seed, prev_ctrl,
 9.2.  Requirements for the Nonce
 
    The sharding and preparation steps of VDAF execution depend on a
-   nonce associated with the Client's report.  To ensure privacy of the
-   underlying measurement, the Client MUST generate this nonce using a
-   CSPRNG.  This is required in order to leverage security analysis for
-   the privacy definition of [DPRS23], which assumes the nonce is chosen
-   at random prior to generating the report.
+   nonce associated with the Client's report.  To leverage the security
+   analysis for the privacy definition of [DPRS23], which assumes the
+   nonce is chosen at random prior to generating the report, the client
+   MUST generate this nonce using a CSPRNG and the aggregators MUST
+   verify that nonces are never re-used.
 
    Other security considerations may require the nonce to be non-
    repeating.  For example, to achieve differential privacy it is
-   necessary to avoid "over exposing" a measurement by including it too
-   many times in a single batch or across multiple batches.  It is
+   necessary to avoid "over exposing" a report by including it too many
+   times in a single batch or across multiple batches.  It is
    RECOMMENDED that the nonce generated by the Client be used by the
    Aggregators for replay protection.
 
@@ -4685,25 +4903,70 @@ def eval_next(IdpfPoplar, prev_seed, prev_ctrl,
       TODO(issue #94) Describe (or point to some description of) the
       central DP mechanism for Poplar described in [BBCGGI21].
 
-9.4.  Pseudorandom Generators and Random Oracles
+9.4.  Requirements for XOFs
 
-   The objects we describe in Section 6.2 share a common interface,
-   which we have called Prg. However, these are not necessarily all
-   modeled as cryptographic Pseudorandom Generators in the security
-   analyses of our protocols.  Instead, most of them are modeled as
-   random oracles.  For these use cases, we want to be conservative in
-   our assumptions, and hence prescribe PrgSha3 as the only RECOMMENDED
-   Prg instantiation.
+   As described in Section 6.2, our constructions rely on eXtendable
+   Output Functions (XOFs).  In the security analyses of our protocols,
+   these are usually modeled as random oracles.  XofTurboShake128 is
+   designed to be indifferentiable from a random oracle [MRH04], making
+   it a suitable choice for most situations.
 
-   The one exception is the PRG used in the Idpf implementation
-   IdpfPoplar Section 8.3.  Here, a random oracle is not needed to prove
-   security, and hence a construction based on fixed-key AES
-   Section 6.2.2 can be used.  However, as PrgFixedKeyAes128 has been
-   shown to be differentiable from a random oracle [GKWWY20], it is NOT
-   RECOMMENDED to use it anywhere else.
+   The one exception is the Idpf implementation IdpfPoplar Section 8.3.
+   Here, a random oracle is not needed to prove privacy, since the
+   analysis of [BBCGGI21], Proposition 1, only requires a Pseudorandom
+   Generator (PRG).  As observed in [GKWY20], a PRG can be instantiated
+   from a correlation-robust hash function H.  Informally, correlation
+   robustness requires that for a random r, H(xor(r, x)) is
+   computationally indistinguishable from a random function of x.  A PRG
+   can therefore be constructed as
 
-      OPEN ISSUE: We may want to drop the common interface for PRGs and
-      random oracles.  See issue #159.
+   PRG(r) = H(xor(r, 1)) || H(xor(r, 2)) || ...`
+
+   since each individual hash function evaluation is indistinguishable
+   from a random function.
+
+   Our construction at Section 6.2.2 implements a correlation-robust
+   hash function using fixed-key AES.  For security, it assumes that AES
+   with a fixed key can be modeled as a random permutation [GKWY20].
+   Additionally, we use a different AES key for every client, which in
+   the ideal cipher model leads to better concrete security [GKWWY20].
+
+   We note that for robustness, the analysis of [BBCGGI21] still assumes
+   a random oracle to make the Idpf extractable.  While
+   XofFixedKeyAes128 has been shown to be differentiable from a random
+   oracle [GKWWY20], there are no known attacks exploiting this
+   difference.  We also stress that even if the Idpf is not extractable,
+   Poplar1 guarantees that every client can contribute to at most one
+   prefix among the ones being evaluated by the helpers.
+
+9.5.  Choosing the Field Size
+
+   Prio3 and other systems built from FLPs (Section 7.3 in particular)
+   may benefit from choosing a field size that is as small as possible.
+   Generally speaking, a smaller field results in lower communication
+   and storage costs.  Care must be taken, however, since a smaller
+   field also results in degraded (or even vacuous) robustness.
+
+   Different variants of Prio3 (Section 7) use different field sizes:
+   Prio3Count uses Field64; but Prio3Sum, Prio3SumVec, and
+   Prio3Histogram use Field128, a field that is twice as large as
+   Field64.  This is due to the use of joint randomness (Section 7.1) in
+   the latter variants.  Joint randomness allows for more flexible
+   circuit design (see Section 7.3.1.1), but opens up Prio3 to
+   precomputation attacks, which the larger field mitigates.  (See
+   [DPRS23], Theorem 1.)  Note that privacy is not susceptible to such
+   attacks.
+
+   Another way to mitigate this issue (or improve robustness in general)
+   is to generate and verify multiple, independent proofs.  (See
+   Section 7.1.2.)  For Prio3, the PROOFS parameter controls the number
+   of proofs (at least one) that are generated and verified.
+
+   In general, Field128 is RECOMMENDED for use in Prio3 when the circuit
+   uses joint randomness (JOINT_RAND_LEN > 0) and PROOFS == 1.  Field64
+   MAY be used instead, but PROOFS MUST be set to at least 3.  Breaking
+   robustness for PROOFS == 2 is feasible, if impractical; but PROOFS ==
+   1 is completely broken for such a small field.
 
 10.  IANA Considerations
 
@@ -4718,9 +4981,9 @@ def eval_next(IdpfPoplar, prev_seed, prev_ctrl,
    +--------------------------+----------------+------+---------------+
    | 0x00000001               | Prio3Sum       | VDAF | Section 7.4.2 |
    +--------------------------+----------------+------+---------------+
-   | 0x00000002               | Prio3Histogram | VDAF | Section 7.4.3 |
+   | 0x00000002               | Prio3SumVec    | VDAF | Section 7.4.3 |
    +--------------------------+----------------+------+---------------+
-   | 0x00000003               | Prio3SumVec    | VDAF | Section 7.4.4 |
+   | 0x00000003               | Prio3Histogram | VDAF | Section 7.4.4 |
    +--------------------------+----------------+------+---------------+
    | 0x00000004 to 0x00000FFF | reserved for   | VDAF | n/a           |
    |                          | Prio3          |      |               |
@@ -4739,9 +5002,6 @@ def eval_next(IdpfPoplar, prev_seed, prev_ctrl,
 
 11.1.  Normative References
 
-   [FIPS202]  "SHA-3 Standard: Permutation-Based Hash and Extendable-
-              Output Functions", NIST FIPS PUB 202 , August 2015.
-
    [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
               Requirement Levels", BCP 14, RFC 2119,
               DOI 10.17487/RFC2119, March 1997,
@@ -4755,10 +5015,12 @@ def eval_next(IdpfPoplar, prev_seed, prev_ctrl,
               Version 1.3", RFC 8446, DOI 10.17487/RFC8446, August 2018,
               <https://www.rfc-editor.org/rfc/rfc8446>.
 
-   [SP800-185]
-              "SHA-3 Derived Functions: cSHAKE, KMAC, TupleHash and
-              ParallelHash", NIST Special Publication 800-185 , December
-              2016.
+   [TurboSHAKE]
+              Viguier, B., Wong, D., Van Assche, G., Dang, Q., and J.
+              Daemen, "KangarooTwelve and TurboSHAKE", Work in Progress,
+              Internet-Draft, draft-irtf-cfrg-kangarootwelve-13, 6
+              February 2024, <https://datatracker.ietf.org/doc/html/
+              draft-irtf-cfrg-kangarootwelve-13>.
 
 11.2.  Informative References
 
@@ -4781,12 +5043,12 @@ def eval_next(IdpfPoplar, prev_seed, prev_ctrl,
               2017 , 2017,
               <https://dl.acm.org/doi/10.5555/3154630.3154652>.
 
-   [DAP]      Geoghegan, T., Patton, C., Rescorla, E., and C. A. Wood,
-              "Distributed Aggregation Protocol for Privacy Preserving
-              Measurement", Work in Progress, Internet-Draft, draft-
-              ietf-ppm-dap-05, 10 July 2023,
+   [DAP]      Geoghegan, T., Patton, C., Pitman, B., Rescorla, E., and
+              C. A. Wood, "Distributed Aggregation Protocol for Privacy
+              Preserving Measurement", Work in Progress, Internet-Draft,
+              draft-ietf-ppm-dap-10, 29 February 2024,
               <https://datatracker.ietf.org/doc/html/draft-ietf-ppm-dap-
-              05>.
+              10>.
 
    [Dou02]    Douceur, J., "The Sybil Attack", IPTPS 2002 , 2002,
               <https://doi.org/10.1007/3-540-45748-8_24>.
@@ -4813,10 +5075,23 @@ def eval_next(IdpfPoplar, prev_seed, prev_ctrl,
               <https://link.springer.com/
               chapter/10.1007/978-3-642-55220-5_35>.
 
-   [GKWWY20]  "Better concrete security for half-gates garbling (in the
-              multi-instance setting)", CRYPTO 2020 , 2020,
+   [GKWWY20]  Guo, C., Katz, J., Wang, X., Weng, C., and Y. Yu, "Better
+              concrete security for half-gates garbling (in the multi-
+              instance setting)", CRYPTO 2020 , 2020,
               <https://link.springer.com/
               chapter/10.1007/978-3-030-56880-1_28>.
+
+   [GKWY20]   Guo, C., Katz, J., Wang, X., and Y. Yu, "Efficient and
+              Secure Multiparty Computation from Fixed-Key Block
+              Ciphers", S&P 2020 , 2020,
+              <https://eprint.iacr.org/2019/074>.
+
+   [MRH04]    Maurer, U., Renner, R., and C. Holenstein,
+              "Indifferentiability, impossibility results on reductions,
+              and applications to the random oracle methodology", In TCC
+              2004: Theory of Cryptography, pages 21-39,
+              DOI 10.1007/978-3-540-24638-1_2, February 2004,
+              <https://doi.org/10.1007/978-3-540-24638-1_2>.
 
    [OriginTelemetry]
               "Origin Telemetry", 2020, <https://firefox-source-
@@ -4830,16 +5105,17 @@ Acknowledgments
    Rosulek, who lent their time to developing definitions and security
    proofs.
 
-   Thanks to Henry Corrigan-Gibbs, Armando Faz-Hernández, Simon
-   Friedberger, Tim Geoghegan, Brandon Pitman, Mariana Raykova, Jacob
-   Rothstein, Shan Wang, Xiao Wang, and Christopher Wood for useful
-   feedback on and contributions to the spec.
+   Thanks to Junye Chen, Henry Corrigan-Gibbs, Armando Faz-Hernández,
+   Simon Friedberger, Tim Geoghegan, Albert Liu, Brandon Pitman, Mariana
+   Raykova, Jacob Rothstein, Shan Wang, Xiao Wang, Bas Westerbaan, and
+   Christopher Wood for useful feedback on and contributions to the
+   spec.
 
 Test Vectors
 
-      NOTE Machine-readable test vectors can be found at
-      https://github.com/cfrg/draft-irtf-cfrg-vdaf/tree/main/poc/
-      test_vec.
+   [TO BE REMOVED BY RFC EDITOR: Machine-readable test vectors can be
+   found at https://github.com/cfrg/draft-irtf-cfrg-vdaf/tree/main/poc/
+   test_vec.]
 
    Test vectors cover the generation of input shares and the conversion
    of input shares into output shares.  Vectors specify the verification
@@ -4856,311 +5132,33 @@ Test Vectors
 
 Prio3Count
 
-verify_key: "000102030405060708090a0b0c0d0e0f"
-upload_0:
-  measurement: 1
-  nonce: "000102030405060708090a0b0c0d0e0f"
-  public_share: >-
-  input_share_0: >-
-    3ead59ec98fe1c4f70171b7a5f0b5c731ae0c48b62f687b98e981a811540934d76db
-    271df5a3a6e97105856c18576573
-  input_share_1: >-
-    000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
-  round_0:
-    prep_share_0: >-
-      4c151ee49ef43488213d8945b7aff36fc979166c714bd4b07676eea77634a432
-    prep_share_1: >-
-      b5eae11b600bcb77827a46303c1e0f073ebc46fcdc9c3fe9aeeb4a5f09e9c163
-    prep_message: >-
-  out_share_0:
-    - 3ead59ec98fe1c4f
-  out_share_1:
-    - c452a6136601e3b0
-agg_share_0: >-
-  3ead59ec98fe1c4f
-agg_share_1: >-
-  c452a6136601e3b0
-agg_result: 1
+      TODO Copy the machine readable vectors from the source repository
+      (https://github.com/cfrg/draft-irtf-cfrg-vdaf/tree/main/poc/
+      test_vec) and format them for humans.
 
 Prio3Sum
 
-bits: 8
-verify_key: "000102030405060708090a0b0c0d0e0f"
-upload_0:
-  measurement: 100
-  nonce: "000102030405060708090a0b0c0d0e0f"
-  public_share: >-
-    d6ba304b5e6fb668b98629cbaa51b5e780000a045a98af5f34a4d71abb6b7885
-  input_share_0: >-
-    c61ac8678ff4456241ff7d9f2182d8b4d007ae72f80d4e7fba171b7f17cfa14aedfd
-    10de4bb9180493872144743b8ac975d273e07b0a347f5f9af84a1573bcaa610f093d
-    013ead7503e6ac003975ae0d840333d65e7f62c70d271360bd404b17d4116ba46a3e
-    71edbddd6abc15c8aaedb1b8931350544a138497d10eaf77733800be917b08d87ed5
-    38e3812cd447335f46fb984e2779b3324bc602c31fe4745c34c7c5251f13dc402760
-    ce65c9a16fce5f171b98a1f3c33d8e44ea7ad1f02ab5fe7acc05187f160ef5692369
-    a105f9a6339249936563891682f8ffa5690a479f9876c49a753e3e982c7186f74a19
-    16ad2ad2b2f926fc47e6c9d1bdd5584e46d3b5d72f8f5a81b2a3fe181670bc75aafa
-    c4c56c189c913b3b32cb6d21b246738301568c7d5c323a7b0aaa28747364b1d1b42f
-    f9a01a13b40c1af75d7e965ec20e18ca729419dcb88b0428b329447ff0ab30337525
-    a58e2a28ea47579fa7b44d490c3d050ad253e8633fe972c689259a7807d7d149b231
-    69a26879be85183a23c00b58060fb09672a8d1197e30065d403d8578110ce5d9608f
-    cc2479f61a94e83d66e1493f77963700f4660aa8d16a51b47920c1e7b9b39ede9dc1
-    c4acad858bc1c66d2b813e2955a4a57106c7905cffd73cea619a58d339bd3e582280
-    9d154d0f9343f49d14c755cecbb770f38b18cdc6928bba24f5f5409527de57bb249e
-    fb5f673c18bd0481d87876e80b59a8805ff95d4d826162c511b54c91d62824c5af0d
-    c0ec1bf8debfec0e5ba26682ba7179ec7e68806170fb04821f6625063d6b1a12a6a8
-    423a6ee4b4561759978de0adce61db70a131840d3d52c1dd6c0e709c9c91236c15da
-    49b468ffbc4ebf0505756aced52055d811753e463e2f0fdceb0bcbfa303132333435
-    363738393a3b3c3d3e3f
-  input_share_1: >-
-    000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021
-    22232425262728292a2b2c2d2e2f
-  round_0:
-    prep_share_0: >-
-      5879339d691b9230058dd5b6fdcf804306454c963883a700ed8251ead70e6a6ddf
-      5c02433a304d03f0280080a6eab201d6ba304b5e6fb668b98629cbaa51b5e7
-    prep_share_1: >-
-      a986cc6296e46dcfde722a4902307fbcba25e7e7175787207014a8a1972756b0af
-      e901f95ba76723b68531c445e83d7680000a045a98af5f34a4d71abb6b7885
-    prep_message: >-
-      f6011479e21b4ef3146e0b849423e360
-  out_share_0:
-    - 6de9984430d882b37f9eb596feeee52e
-  out_share_1:
-    - f81667bbcf277d4c64614a6901111ad1
-agg_share_0: >-
-  6de9984430d882b37f9eb596feeee52e
-agg_share_1: >-
-  f81667bbcf277d4c64614a6901111ad1
-agg_result: 100
+      TODO Copy the machine readable vectors from the source repository
+      (https://github.com/cfrg/draft-irtf-cfrg-vdaf/tree/main/poc/
+      test_vec) and format them for humans.
+
+Prio3SumVec
+
+      TODO Copy the machine readable vectors from the source repository
+      (https://github.com/cfrg/draft-irtf-cfrg-vdaf/tree/main/poc/
+      test_vec) and format them for humans.
 
 Prio3Histogram
 
-length: 4
-verify_key: "000102030405060708090a0b0c0d0e0f"
-upload_0:
-  measurement: 2
-  nonce: "000102030405060708090a0b0c0d0e0f"
-  public_share: >-
-    1a84cd1f7c84b403ef8471cc15158c84b21b5733b6f53176ed5b8d8174a288e9
-  input_share_0: >-
-    fb788fb4dd1ada7c27fa1c6bd2f3ba3de3ea9c976900e67a80152e8d81603d516d08
-    98cddce70a38bc5e6228b1bc4b67b0c779b2b93e73b4da90cab872f0f51ccf5b5bbc
-    e30773cb5b0227b1c52cb2de52087f365317fa8bb1e6c15c809096b02104cc2a4680
-    88ec6c8ad9dd1289a98e750ee469d1c78fbc1796d9b7d225f7b9410596d0bf27a093
-    14d240d91f8bd194d24fff76524c5044d0939b53ceb724b49d417fe853d707617baa
-    0c75e2d107bfa90725d50bbd691ed65e0e93f946091dff046e2cdf2fef9a4586a3f0
-    d4b69177b290d3e7cbea8f5d70dfc5376537f1952339366a834e97363f8e5a9fb0ab
-    08ea5902d19e64aa4bef980fb007928cc319fbd2e7254df43c5b803bf0b9656b9484
-    aa1f4354166af16282ba51722a5768ce718c895f7a0ed3b4cad2c23fe954d62d564f
-    23f30388da09f1641be3efccff94303132333435363738393a3b3c3d3e3f
-  input_share_1: >-
-    000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021
-    22232425262728292a2b2c2d2e2f
-  round_0:
-    prep_share_0: >-
-      960cec2ab69f328cc5e790b8a65852d2bac43ed54fb150d487415d2795383f406f
-      d58ffe957f8ee525b8f2407d3ce5d71a84cd1f7c84b403ef8471cc15158c84
-    prep_share_1: >-
-      6bf313d54960cd731e186f4759a7ad2d71916f8a508640739726528e260a458f22
-      a5cf556e866033059eb5e147c974a8b21b5733b6f53176ed5b8d8174a288e9
-    prep_message: >-
-      6af47a4b7d91c14993d2a4d40c8d62d7
-  out_share_0:
-    - fb788fb4dd1ada7c27fa1c6bd2f3ba3d
-    - e3ea9c976900e67a80152e8d81603d51
-    - 6d0898cddce70a38bc5e6228b1bc4b67
-    - b0c779b2b93e73b4da90cab872f0f51c
-  out_share_1:
-    - 0687704b22e52583bc05e3942d0c45c2
-    - 1e15636896ff198563ead1727e9fc2ae
-    - 95f767322318f5c727a19dd74e43b498
-    - 5138864d46c18c4b096f35478d0f0ae3
-agg_share_0: >-
-  fb788fb4dd1ada7c27fa1c6bd2f3ba3de3ea9c976900e67a80152e8d81603d516d0898
-  cddce70a38bc5e6228b1bc4b67b0c779b2b93e73b4da90cab872f0f51c
-agg_share_1: >-
-  0687704b22e52583bc05e3942d0c45c21e15636896ff198563ead1727e9fc2ae95f767
-  322318f5c727a19dd74e43b4985138864d46c18c4b096f35478d0f0ae3
-agg_result: [0, 0, 1, 0]
+      TODO Copy the machine readable vectors from the source repository
+      (https://github.com/cfrg/draft-irtf-cfrg-vdaf/tree/main/poc/
+      test_vec) and format them for humans.
 
 Poplar1
 
-Sharding
-
-bits: 4
-upload_0:
-  measurement: 13
-  nonce: "000102030405060708090a0b0c0d0e0f"
-  public_share: >-
-    cd54d2e61e2c14720170a3d0748e06e0e4c840af1d8e0138ed00fb1de353014616a6
-    6a90d9354b159ab14f61f09acb60f5d3c1e2377edf5240b0fb106993aeff889dc28d
-    c4f4a46b28bf94d09eae4d50600400ef9f73f2cad7894ab244d99bf5f3c05ab13163
-    8160e01a201b4ac7e1b18f537d53eccea86864da5d27da48d2bca05bd663abd34490
-    7e7337ea6211566c41178170957627d356f228061c4c72eca34a3dcacf9cc85721db
-    a1810817f24f1c
-  input_share_0: >-
-    000102030405060708090a0b0c0d0e0f202122232425262728292a2b2c2d2e2f4b0b
-    a3a61241315702f3cde47fd8b5f4e0db66ed4ff3002ac48fd1fa1b2728e2a014b567
-    123ae545640b8719bd593ba44157b33f386d83b8f39e10db848e890073eaf40fc1b6
-    eb4b01d14199c7e0e21a84f33805453858c2c9860fd9a328331729b22e6fc4fa38f2
-    771ae81091410b3e
-  input_share_1: >-
-    101112131415161718191a1b1c1d1e1f303132333435363738393a3b3c3d3e3f64d7
-    572ab3849f73e2ff3ea5657411e5217df4b7b12d19328d71c8dd4e70badc909776eb
-    a6558717ac481ebacce4656d7aaeb7c37c251d5683c7eb83b5a3524801518da879a9
-    d5e5a22e68d8a3decf69fa10e0ca6aad9f3f539afe6fbd19c924386334e2d237f5d2
-    390805243ee3cc3e
-
-Preparation, Aggregation, and Unsharding
-
-   verify_key: "000102030405060708090a0b0c0d0e0f"
-   agg_param: (0, (0, 1))
-   upload_0:
-     round_0:
-       prep_share_0: >-
-         4195a4c56e1260647413dc5fa0f1822844fb8750eea70573
-       prep_share_1: >-
-         7e530646b6adb0632367eb0b0eb39d1a79ec88f7bbc98f50
-       prep_message: >-
-         bfe8aa0b25c010c8977ac76baea42043bde71048aa7195c3
-     round_1:
-       prep_share_0: >-
-         24a5193d7d5bf285
-       prep_share_1: >-
-         dd5ae6c281a40d7a
-       prep_message: >-
-     out_share_0:
-       - e457b2981c956b15
-       - 79813da9034552cd
-     out_share_1:
-       - 1da84d67e26a94ea
-       - 897ec256fbbaad32
-   agg_share_0: >-
-     e457b2981c956b1579813da9034552cd
-   agg_share_1: >-
-     1da84d67e26a94ea897ec256fbbaad32
-   agg_result: [0, 1]
-
-   verify_key: "000102030405060708090a0b0c0d0e0f"
-   agg_param: (1, (0, 1, 2, 3))
-   upload_0:
-     round_0:
-       prep_share_0: >-
-         dda737bbd51e94c5a8ecd1b3276a402446ddcc2d21bbf6b7
-       prep_share_1: >-
-         74baf93771f3714c3b40466cb9cf19f180f48934c1f1db3d
-       prep_message: >-
-         506231f347120612e22c1820e2395a15c6d15662e2acd2f5
-     round_1:
-       prep_share_0: >-
-         a30e360c7d7e51fc
-       prep_share_1: >-
-         5ef1c9f38181ae03
-       prep_message: >-
-     out_share_0:
-       - 078e84648c4ae70c
-       - ac7a8371234c4540
-       - 69b3af8cdff3b459
-       - 91579ac64d319d58
-     out_share_1:
-       - fa717b9b72b518f3
-       - 55857c8edbb3babf
-       - 984c50731f0c4ba6
-       - 71a86539b1ce62a7
-   agg_share_0: >-
-     078e84648c4ae70cac7a8371234c454069b3af8cdff3b45991579ac64d319d58
-   agg_share_1: >-
-     fa717b9b72b518f355857c8edbb3babf984c50731f0c4ba671a86539b1ce62a7
-   agg_result: [0, 0, 0, 1]
-
-   verify_key: "000102030405060708090a0b0c0d0e0f"
-   agg_param: (2, (0, 2, 4, 6))
-   upload_0:
-     round_0:
-       prep_share_0: >-
-         675359765228af1fe557ab25196a1ad1399ad4c7c4affc66
-       prep_share_1: >-
-         c87431627147a136eac6fba1d3f4e6bcb57a9b2449f8fe21
-       prep_message: >-
-         2fc88ad8c36f5056ce1ea7c7ed5e018eee1470ec0da8fb88
-     round_1:
-       prep_share_0: >-
-         621b1271c1ec7b4a
-       prep_share_1: >-
-         9fe4ed8e3d1384b5
-       prep_message: >-
-     out_share_0:
-       - a05be48631d9376b
-       - 66cac23e03c7ca6d
-       - 882152745673ba29
-       - 1d096863ef00faf5
-     out_share_1:
-       - 61a41b79cd26c894
-       - 9b353dc1fb383592
-       - 79dead8ba88c45d6
-       - e5f6979c0fff050a
-   agg_share_0: >-
-     a05be48631d9376b66cac23e03c7ca6d882152745673ba291d096863ef00faf5
-   agg_share_1: >-
-     61a41b79cd26c8949b353dc1fb38359279dead8ba88c45d6e5f6979c0fff050a
-   agg_result: [0, 0, 0, 1]
-
-verify_key: "000102030405060708090a0b0c0d0e0f"
-agg_param: (3, (1, 3, 5, 7, 9, 13, 15))
-upload_0:
-  round_0:
-    prep_share_0: >-
-      5d26d73b85e6c726830478fe973d8b4687dffaf324399a3e62962ab71a41841a12
-      93b70acb36828229dd8ee4fb0d437c2270472054dcef8fba9eb43fb3bb18387cf1
-      38d5e13f9a4207d7026e112fe3e51e9d88688e4cb3105308ec5a2cdd4364
-    prep_share_1: >-
-      9a8537c1e41bd3d693b03ec522278178bda4454014ba800f4bea45d9c500b51330
-      0a144b10fc37e3e5cfdda0f698519ae6301c8d0b41f623c19b125d6fe35c76143e
-      6ec8752a598cec3b5316a1782eac1584b8be9e15f93ad4ecd70c4061d77d
-    prep_message: >-
-      f7ab0efd69029bfd16b5b6c3ba640cbf4484403439f31a4ead807090e041392e55
-      9dcb55db32ba650fad6c85f2a6941609a163ad5f1de6b37b3ac79c229f752ea32f
-      a79d576af3cef3125684b2a71192342141272d62ac4b27f5c3676c3e1b62
-  round_1:
-    prep_share_0: >-
-      537a1a1fcdbbb4042dac5afb5c995abef6ffcbf2cb8375a357fd6b4697c84a47
-    prep_share_1: >-
-      9a85e5e032444bfbd253a504a366a5410900340d347c8a5ca80294b96837b538
-    prep_message: >-
-  out_share_0:
-    - 0f33eec522414e75f7094646ee1ca7c22baba5bac4a02ce4ab1e812e21a34211
-    - 013454e2f0b4046dac7287eac25ae1c398c30e2f1797507b546eaa36bc67a454
-    - e56e12917baff2b8eb367a2d9fca0fad3dfd86e24f320589202f23ce34816834
-    - af5d42b895abad21f05f3e73924b4d45533d5f9c63542c71a3343e1bd97fa61b
-    - 5a3348a91fc4111a88528cba84c009228b6a5817b6b541c077edfd801489ec38
-    - 0a511695baad2eb33150a7e13950e35a19abd5bf1bef81533f0229c9c45f0164
-    - 7dc5f3900c63255f1418d3af04abb642fc4f92b3cc25325bcc15e11caabf8038
-  out_share_1:
-    - decc113addbeb18a08f6b9b911e3583dd4545a453b5fd31b54e17ed1de5cbd6e
-    - eccbab1d0f4bfb92538d78153da51e3c673cf1d0e868af84ab9155c943985b2b
-    - 0891ed6e84500d4714c985d26035f052c202791db0cdfa76dfd0dc31cb7e974b
-    - 3ea2bd476a5452de0fa0c18c6db4b2baacc2a0639cabd38e5ccbc1e426805964
-    - 93ccb756e03beee577ad73457b3ff6dd7495a7e8494abe3f8812027feb761347
-    - e4aee96a4552d14cceaf581ec6af1ca5e6542a40e4107eacc0fdd6363ba0fe1b
-    - 703a0c6ff39cdaa0ebe72c50fb5449bd03b06d4c33dacda433ea1ee355407f47
-agg_share_0: >-
-  0f33eec522414e75f7094646ee1ca7c22baba5bac4a02ce4ab1e812e21a34211013454
-  e2f0b4046dac7287eac25ae1c398c30e2f1797507b546eaa36bc67a454e56e12917baf
-  f2b8eb367a2d9fca0fad3dfd86e24f320589202f23ce34816834af5d42b895abad21f0
-  5f3e73924b4d45533d5f9c63542c71a3343e1bd97fa61b5a3348a91fc4111a88528cba
-  84c009228b6a5817b6b541c077edfd801489ec380a511695baad2eb33150a7e13950e3
-  5a19abd5bf1bef81533f0229c9c45f01647dc5f3900c63255f1418d3af04abb642fc4f
-  92b3cc25325bcc15e11caabf8038
-agg_share_1: >-
-  decc113addbeb18a08f6b9b911e3583dd4545a453b5fd31b54e17ed1de5cbd6eeccbab
-  1d0f4bfb92538d78153da51e3c673cf1d0e868af84ab9155c943985b2b0891ed6e8450
-  0d4714c985d26035f052c202791db0cdfa76dfd0dc31cb7e974b3ea2bd476a5452de0f
-  a0c18c6db4b2baacc2a0639cabd38e5ccbc1e42680596493ccb756e03beee577ad7345
-  7b3ff6dd7495a7e8494abe3f8812027feb761347e4aee96a4552d14cceaf581ec6af1c
-  a5e6542a40e4107eacc0fdd6363ba0fe1b703a0c6ff39cdaa0ebe72c50fb5449bd03b0
-  6d4c33dacda433ea1ee355407f47
-agg_result: [0, 0, 0, 0, 0, 1, 0]
+      TODO Copy the machine readable vectors from the source repository
+      (https://github.com/cfrg/draft-irtf-cfrg-vdaf/tree/main/poc/
+      test_vec) and format them for humans.
 
 Authors' Addresses
 
