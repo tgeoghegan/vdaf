@@ -3597,7 +3597,7 @@ local inputs and/or messages sent by its co-Aggregators. The initial state is
 <code>Start</code>. The terminal states are: <code>Rejected</code>, indicating that the report cannot
 be processed any further; and <code>Finished(out_share)</code>, indicating that the
 Aggregator has recovered an output share <code>out_share</code>; and
-<code>FinishedWithOutbound(out_share)</code>, indicating that the Aggregator has
+<code>FinishedWithOutbound(out_share, outbound)</code>, indicating that the Aggregator has
 recovered an output share, has one more outbound message to send. For
 completeness, we define these states in <a href="#topo-states" class="auto internal xref">Appendix B</a>.<a href="#section-5.7-5" class="pilcrow">¶</a></p>
 <p id="section-5.7-6">The methods described in this section are defined in terms of opaque byte
@@ -9829,14 +9829,19 @@ class Start(State):
     pass
 
 class Continued(State, Generic[PrepState]):
-    def __init__(self, prep_state: PrepState, prep_round: int):
+    def __init__(self,
+                 prep_state: PrepState,
+                 prep_round: int,
+                 outbound: bytes):
         self.prep_state = prep_state
         self.prep_round = prep_round
+        self.outbound = outbound
 
     def __eq__(self, other: object) -&gt; bool:
         return isinstance(other, Continued) and \
             self.prep_state == other.prep_state and \
-            self.prep_round == other.prep_round
+            self.prep_round == other.prep_round and \
+            self.outbound == other.outbound
 
 class Finished(State, Generic[OutShare]):
     def __init__(self, out_share: OutShare):
